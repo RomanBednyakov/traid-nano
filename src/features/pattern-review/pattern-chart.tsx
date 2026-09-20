@@ -179,6 +179,17 @@ function ChartOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden="true">
+      <div
+        className="absolute bottom-7 top-0 z-0 border-l border-teal-300/25 bg-teal-300/[0.035]"
+        style={{
+          left: geometry.formationRight,
+          width: Math.max(geometry.chartRight - geometry.formationRight, 1),
+        }}
+      >
+        <span className="absolute right-2 top-2 rounded bg-[#071011cc] px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-wider text-[#607675]">
+          после сигнала · не участвует в поиске
+        </span>
+      </div>
       <svg
         className="absolute inset-0"
         viewBox={`0 0 ${geometry.width} ${geometry.height}`}
@@ -262,6 +273,15 @@ function ChartOverlay({
       >
         <span className="absolute left-1.5 top-1.5 rounded bg-[#071011e6] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-amber-300">
           формация
+        </span>
+      </div>
+
+      <div
+        className="absolute bottom-7 top-5 z-40 border-l-2 border-dashed border-teal-300/90"
+        style={{ left: geometry.formationRight }}
+      >
+        <span className="absolute -left-8 top-0 whitespace-nowrap rounded bg-teal-300 px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-[#061112]">
+          сигнал
         </span>
       </div>
 

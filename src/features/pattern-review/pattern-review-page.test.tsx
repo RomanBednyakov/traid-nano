@@ -20,7 +20,7 @@ vi.mock('./market-data', () => ({
 
 vi.mock('./pattern-detector', () => ({
   detectPatterns: mocks.detectPatterns,
-  detectorAssumptions: { fibonacciThreshold: 0.236, formationLength: 24 },
+  detectorAssumptions: { fibonacciThreshold: 0.236, formationLengths: { '1h': [2, 3], '4h': [1, 2] } },
 }))
 
 vi.mock('./pattern-chart', () => ({
@@ -94,6 +94,14 @@ function pattern(id: string, title: string, strictMatch = true) {
       formationHeightPercent: 43,
       formationTopDepthPercent: 50,
     },
+    outcome: {
+      bars: 16,
+      endTime: 6,
+      closeChangePercent: -4.2,
+      maxDropPercent: 8.1,
+      maxRisePercent: 1.4,
+      label: 'После сигнала преобладало падение',
+    },
     explanation: 'Описание',
     verdict: 'Вывод',
     criteria: [
@@ -128,7 +136,7 @@ describe('PatternReviewPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText('AAPL · найденная формация')).toBeInTheDocument()
+    expect(await screen.findByText('AAPL · начало формации')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Далее' }))
 
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second')
@@ -138,7 +146,7 @@ describe('PatternReviewPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('AAPL · найденная формация')
+    await screen.findByText('AAPL · начало формации')
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('annotations:on')
     await user.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('annotations:off')
@@ -148,7 +156,7 @@ describe('PatternReviewPage', () => {
 
   it('supports arrow-key navigation and wraps backwards', async () => {
     renderPage()
-    await screen.findByText('AAPL · найденная формация')
+    await screen.findByText('AAPL · начало формации')
 
     fireEvent.keyDown(window, { key: 'ArrowLeft' })
     await waitFor(() => expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second'))

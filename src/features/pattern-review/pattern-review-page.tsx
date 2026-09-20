@@ -46,8 +46,8 @@ const legend = [
   { color: '#4ade80', title: 'Основной тренд', text: 'направлен вниз' },
   { color: '#60a5fa', title: 'Локальный контртренд', text: 'движение вверх к вершине диапазона' },
   { color: '#fb7185', title: 'Красные линии', text: 'верхняя и нижняя границы диапазона' },
-  { color: '#fbbf24', title: 'Оранжевая формация', text: 'произвольная структура у нижней границы' },
-  { color: '#a78bfa', title: 'Fibonacci 0,236', text: 'верх формации должен быть ниже уровня' },
+  { color: '#fbbf24', title: 'Начало формации', text: 'первые свечи у нижней границы' },
+  { color: '#a78bfa', title: 'Зона 0,236', text: 'рабочая область от нижней границы' },
 ]
 
 const formatPeriod = (value?: string) => value
@@ -99,7 +99,7 @@ export function PatternReviewPage() {
     loadMarketDataset(selectedDataset.file, controller.signal)
       .then((dataset) => {
         if (controller.signal.aborted) return
-        const matches = detectPatterns(dataset).filter((item) => item.strictMatch)
+        const matches = detectPatterns(dataset)
         setPatterns(matches)
         setStatus(matches.length ? 'ready' : 'empty')
       })
@@ -206,7 +206,7 @@ export function PatternReviewPage() {
               Проверено: <strong className="font-medium text-white">{selectedDataset?.candleCount.toLocaleString('ru-RU') ?? '—'} свечей</strong>
             </span>
             <span className="rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-2 text-xs text-teal-200">
-              {status === 'ready' ? <><strong>{patterns.length}</strong> найдено</> : 'Ищем вхождения…'}
+              {status === 'ready' ? <><strong>{patterns.length}</strong> сигналов</> : 'Ищем сигналы…'}
             </span>
           </div>
         </section>
@@ -234,8 +234,8 @@ export function PatternReviewPage() {
                   <div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">
                     Случай {index + 1} из {patterns.length} · {pattern.timeframe}
                   </div>
-                  <h1 className="text-xl font-semibold text-white">{pattern.symbol} · найденная формация</h1>
-                  <p className="mt-1 text-sm text-[#829695]">Завершение участка: {pattern.eventDate}</p>
+                  <h1 className="text-xl font-semibold text-white">{pattern.symbol} · начало формации</h1>
+                  <p className="mt-1 text-sm text-[#829695]">Сигнал появился: {pattern.eventDate}</p>
                 </div>
                 <Button
                   variant="outline"
@@ -263,11 +263,11 @@ export function PatternReviewPage() {
                 <div className="flex items-center gap-2">
                   {pattern.strictMatch ? <CheckCircle2 className="size-5 text-teal-300" /> : <AlertTriangle className="size-5 text-amber-300" />}
                   <span className={`font-semibold ${pattern.strictMatch ? 'text-teal-200' : 'text-amber-200'}`}>
-                    {pattern.strictMatch ? 'Паттерн подходит' : 'Нужно проверить глазами'}
+                    {pattern.strictMatch ? 'Точка постановки найдена' : 'Нужно проверить глазами'}
                   </span>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-[#9badaa]">
-                  {pattern.strictMatch ? 'Все ключевые условия выполнены.' : 'Пять из шести условий выполнены.'}
+                  {pattern.strictMatch ? 'Будущие свечи при поиске не использовались.' : 'Условия выполнены не полностью.'}
                 </p>
               </div>
 
@@ -275,7 +275,8 @@ export function PatternReviewPage() {
                 {[
                   { label: 'Основной тренд направлен вниз', passed: pattern.criteria[0]?.passed },
                   { label: 'Есть локальный контртренд вверх', passed: pattern.criteria[1]?.passed },
-                  { label: 'Формация находится у нижней границы', passed: pattern.criteria.slice(2).every((item) => item.passed) },
+                  { label: 'Основной тренд больше и дольше контртренда', passed: pattern.criteria.slice(4, 6).every((item) => item.passed) },
+                  { label: 'Начало формации находится в зоне 0,236', passed: pattern.criteria.slice(2, 4).every((item) => item.passed) },
                 ].map((item) => (
                   <div key={item.label} className="flex items-center gap-2.5 text-sm">
                     {item.passed
@@ -301,10 +302,34 @@ export function PatternReviewPage() {
                     </div>
                   ))}
                   <p className="border-t border-[#203032] pt-3 leading-4 text-violet-200/70">
-                    0,236 откладывается от верхней красной границы к нижней.
+                    Зона 0,236 откладывается вверх от нижней красной границы. График заканчивается на свече сигнала.
                   </p>
                 </div>
               </details>
+
+              <div className="mt-5 rounded-xl border border-[#203032] bg-[#091315] p-4">
+                <div className="text-xs font-semibold uppercase tracking-wider text-[#829695]">Что произошло после</div>
+                <div className="mt-2 text-sm font-medium text-white">{pattern.outcome.label}</div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+                  <div className="rounded-lg bg-rose-400/10 p-2">
+                    <div className="text-[#607675]">Макс. падение</div>
+                    <div className="mt-1 font-semibold text-rose-300">−{pattern.outcome.maxDropPercent.toFixed(1)}%</div>
+                  </div>
+                  <div className="rounded-lg bg-teal-400/10 p-2">
+                    <div className="text-[#607675]">Макс. рост</div>
+                    <div className="mt-1 font-semibold text-teal-300">+{pattern.outcome.maxRisePercent.toFixed(1)}%</div>
+                  </div>
+                  <div className="rounded-lg bg-white/[0.04] p-2">
+                    <div className="text-[#607675]">Закрытие</div>
+                    <div className={`mt-1 font-semibold ${pattern.outcome.closeChangePercent <= 0 ? 'text-rose-300' : 'text-teal-300'}`}>
+                      {pattern.outcome.closeChangePercent > 0 ? '+' : ''}{pattern.outcome.closeChangePercent.toFixed(1)}%
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-2 text-[11px] leading-4 text-[#607675]">
+                  Проверено {pattern.outcome.bars} свечей после метки. Эти данные не влияют на обнаружение.
+                </p>
+              </div>
 
               <div className="mt-auto grid grid-cols-2 gap-2 pt-5">
                 <Button variant="outline" onClick={() => move(-1)} className="border-[#2b4042] bg-transparent">
@@ -320,7 +345,7 @@ export function PatternReviewPage() {
 
         <footer className="mt-4 flex flex-col gap-2 rounded-xl border border-[#203032] bg-[#091315] px-4 py-3 text-xs text-[#607675] sm:flex-row sm:items-center sm:justify-between">
           <span className="flex items-center gap-2"><Database className="size-3.5" /> Локальный adjusted OHLC snapshot · Yahoo Finance Chart · внешних запросов со страницы нет</span>
-          <span>Исследовательский детектор, не торговый сигнал</span>
+          <span>Сигнал формируется без будущих свечей; требуется проверка риск-менеджмента</span>
         </footer>
       </main>
     </div>

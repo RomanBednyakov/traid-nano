@@ -111,6 +111,14 @@ export interface PatternCase {
     formationHeightPercent: number
     formationTopDepthPercent: number
   }
+  outcome: {
+    bars: number
+    endTime: UTCTimestamp
+    closeChangePercent: number
+    maxDropPercent: number
+    maxRisePercent: number
+    label: string
+  }
   explanation: string
   verdict: string
   criteria: PatternCriterion[]

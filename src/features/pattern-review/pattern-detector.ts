@@ -3,8 +3,12 @@ import type { CandlestickData, UTCTimestamp } from 'lightweight-charts'
 import type { MarketDataset, PatternCase, PatternCriterion } from './types'
 
 const FIBONACCI_THRESHOLD = 0.236
-const FORMATION_LENGTH = 24
-const MIN_PATTERN_SPACING = 34
+const FIBONACCI_WICK_TOLERANCE = 1.1
+const FORMATION_LENGTHS = {
+  '1h': [2, 3, 4, 6, 8],
+  '4h': [1, 2, 3, 4, 6],
+} as const
+const MIN_PATTERN_SPACING = { '1h': 18, '4h': 4 } as const
 
 type Candle = CandlestickData<UTCTimestamp>
 
@@ -14,6 +18,7 @@ interface DetectionCandidate {
   counterLowIndex: number
   counterHighIndex: number
   formationStartIndex: number
+  formationLength: number
   rangeLow: number
   formationHigh: number
   formationLow: number
@@ -59,172 +64,157 @@ function averageRangePercent(candles: Candle[], start: number, end: number) {
   return sum / Math.max(end - start + 1, 1)
 }
 
-function regressionChange(candles: Candle[], start: number, end: number) {
-  const count = end - start + 1
-  const xMean = (count - 1) / 2
-  let yMean = 0
-  for (let index = start; index <= end; index += 1) yMean += candles[index].close
-  yMean /= count
-
-  let numerator = 0
-  let denominator = 0
-  for (let offset = 0; offset < count; offset += 1) {
-    numerator += (offset - xMean) * (candles[start + offset].close - yMean)
-    denominator += (offset - xMean) ** 2
-  }
-
-  const slope = numerator / Math.max(denominator, 1)
-  return (slope * (count - 1)) / Math.max(yMean, 0.000001)
-}
-
 function scoreCandidate(
   candles: Candle[],
   endIndex: number,
+  interval: MarketDataset['interval'],
 ): DetectionCandidate | null {
-  const formationStartIndex = endIndex - FORMATION_LENGTH + 1
-  const highSearchStart = endIndex - 118
-  const highSearchEnd = formationStartIndex - 10
-  if (highSearchStart < 125 || highSearchEnd <= highSearchStart) return null
+  const counterLookback = interval === '1h' ? 72 : 36
+  const trendLookback = interval === '1h' ? 96 : 48
 
-  const counterHighIndex = indexOfExtreme(
-    candles,
-    highSearchStart,
-    highSearchEnd,
-    'high',
-    'max',
-  )
-  const counterLowSearchStart = Math.max(70, counterHighIndex - 96)
-  const counterLowSearchEnd = counterHighIndex - 12
-  if (counterLowSearchEnd <= counterLowSearchStart) return null
+  for (const formationLength of FORMATION_LENGTHS[interval]) {
+    const formationStartIndex = endIndex - formationLength + 1
+    const highSearchStart = Math.max(0, formationStartIndex - counterLookback)
+    const highSearchEnd = formationStartIndex - 2
+    if (highSearchEnd - highSearchStart < 8) continue
 
-  const counterLowIndex = indexOfExtreme(
-    candles,
-    counterLowSearchStart,
-    counterLowSearchEnd,
-    'low',
-    'min',
-  )
-  const trendSearchStart = Math.max(0, counterLowIndex - 115)
-  const trendSearchEnd = Math.max(trendSearchStart, counterLowIndex - 35)
-  const trendStartIndex = indexOfExtreme(
-    candles,
-    trendSearchStart,
-    trendSearchEnd,
-    'high',
-    'max',
-  )
+    const counterHighIndex = indexOfExtreme(
+      candles,
+      highSearchStart,
+      highSearchEnd,
+      'high',
+      'max',
+    )
+    const counterLowSearchStart = Math.max(0, counterHighIndex - trendLookback)
+    const counterLowSearchEnd = counterHighIndex - 2
+    if (counterLowSearchEnd - counterLowSearchStart < 8) continue
 
-  const upper = candles[counterHighIndex].high
-  const counterLow = candles[counterLowIndex].low
-  const trendStart = candles[trendStartIndex].high
-  const rangeLowIndex = indexOfExtreme(
-    candles,
-    counterHighIndex + 1,
-    endIndex,
-    'low',
-    'min',
-  )
-  const rangeLow = candles[rangeLowIndex].low
-  const formationHighIndex = indexOfExtreme(
-    candles,
-    formationStartIndex,
-    endIndex,
-    'high',
-    'max',
-  )
-  const formationLowIndex = indexOfExtreme(
-    candles,
-    formationStartIndex,
-    endIndex,
-    'low',
-    'min',
-  )
-  const formationHigh = candles[formationHighIndex].high
-  const formationLow = candles[formationLowIndex].low
-  const rangeHeight = upper - rangeLow
-  if (rangeHeight <= 0 || counterLow <= 0 || trendStart <= 0) return null
+    const counterLowIndex = indexOfExtreme(
+      candles,
+      counterLowSearchStart,
+      counterLowSearchEnd,
+      'low',
+      'min',
+    )
+    const trendSearchStart = Math.max(0, counterLowIndex - trendLookback * 4)
+    const trendSearchEnd = counterLowIndex - 2
+    if (trendSearchEnd - trendSearchStart < 8) continue
 
-  const fibLevel = upper - rangeHeight * FIBONACCI_THRESHOLD
-  const mainTrendDrop = (trendStart - counterLow) / trendStart
-  const counterTrendRise = (upper - counterLow) / counterLow
-  const formationHeight = (formationHigh - formationLow) / rangeHeight
-  const formationTopDepth = (upper - formationHigh) / rangeHeight
-  const formationLowDistance = (formationLow - rangeLow) / rangeHeight
-  const regression = regressionChange(candles, trendStartIndex, counterLowIndex)
-  const volatility = averageRangePercent(candles, trendStartIndex, endIndex)
+    const trendStartIndex = indexOfExtreme(
+      candles,
+      trendSearchStart,
+      trendSearchEnd,
+      'high',
+      'max',
+    )
+    const rangeLowIndex = indexOfExtreme(
+      candles,
+      counterHighIndex + 1,
+      endIndex,
+      'low',
+      'min',
+    )
+    const formationHighIndex = indexOfExtreme(
+      candles,
+      formationStartIndex,
+      endIndex,
+      'high',
+      'max',
+    )
+    const formationLowIndex = indexOfExtreme(
+      candles,
+      formationStartIndex,
+      endIndex,
+      'low',
+      'min',
+    )
 
-  const mainThreshold = Math.max(0.025, volatility * 3.1)
-  const counterThreshold = Math.max(0.022, volatility * 2.6)
-  const mainTrendPassed = mainTrendDrop >= mainThreshold && regression <= -0.02
-  const counterTrendPassed = counterTrendRise >= counterThreshold
-  const topBelowCounterTrend = formationHigh <= upper * 1.006
-  const belowFibLevel = formationHigh <= fibLevel * 1.012
-  const compactFormation = formationHeight <= 0.68
-  const formationNearLow = formationLowDistance <= 0.16
+    const upper = candles[counterHighIndex].high
+    const counterLow = candles[counterLowIndex].low
+    const trendStart = candles[trendStartIndex].high
+    const rangeLow = candles[rangeLowIndex].low
+    const formationHigh = candles[formationHighIndex].high
+    const formationLow = candles[formationLowIndex].low
+    const rangeHeight = upper - rangeLow
+    if (rangeHeight <= 0 || counterLow <= 0 || trendStart <= 0) continue
 
-  const criteria: PatternCriterion[] = [
-    {
-      label: 'Основной тренд вниз',
-      detail: `Падение до локального минимума, порог с учётом волатильности ${percent(mainThreshold * 100)}.`,
-      value: percent(mainTrendDrop * 100),
-      passed: mainTrendPassed,
-    },
-    {
-      label: 'Локальный контртренд вверх',
-      detail: `Рост от синего минимума до верхней красной границы, порог ${percent(counterThreshold * 100)}.`,
-      value: percent(counterTrendRise * 100),
-      passed: counterTrendPassed,
-    },
-    {
-      label: 'Вершина не обновлена',
-      detail: 'Максимум оранжевой формации не выше вершины локального контртренда.',
-      value: `${price(formationHigh)} ≤ ${price(upper)}`,
-      passed: topBelowCounterTrend,
-    },
-    {
-      label: 'Фильтр Fibonacci 0,236',
-      detail: 'Верх формации находится ниже уровня 0,236, отложенного от верхней границы к нижней.',
-      value: `${percent(formationTopDepth * 100)} глубины`,
-      passed: belowFibLevel,
-    },
-    {
-      label: 'Формация компактна',
-      detail: 'Высота оранжевой области не больше 68% полного локального диапазона.',
-      value: percent(formationHeight * 100),
-      passed: compactFormation,
-    },
-    {
-      label: 'Формация у нижней границы',
-      detail: 'Минимум формации расположен в нижних 16% диапазона.',
-      value: percent(Math.max(formationLowDistance, 0) * 100),
-      passed: formationNearLow,
-    },
-  ]
+    const fibLevel = rangeLow + rangeHeight * FIBONACCI_THRESHOLD
+    const mainTrendDrop = (trendStart - counterLow) / trendStart
+    const counterTrendRise = (upper - counterLow) / counterLow
+    const mainTrendMove = trendStart - counterLow
+    const counterTrendMove = upper - counterLow
+    const mainTrendDuration = counterLowIndex - trendStartIndex
+    const counterTrendDuration = counterHighIndex - counterLowIndex
+    const formationHeight = (formationHigh - formationLow) / rangeHeight
+    const formationTopDepth = (upper - formationHigh) / rangeHeight
+    const formationTopFromLow = (formationHigh - rangeLow) / rangeHeight
+    const volatility = averageRangePercent(candles, trendStartIndex, endIndex)
+    const mainThreshold = Math.max(interval === '1h' ? 0.004 : 0.007, volatility * 0.8)
+    const counterThreshold = Math.max(interval === '1h' ? 0.0035 : 0.006, volatility * 0.75)
 
-  const passedCount = criteria.filter((criterion) => criterion.passed).length
-  const score = Math.round((passedCount / criteria.length) * 100)
-  const strictMatch = criteria.every((criterion) => criterion.passed)
+    const criteria: PatternCriterion[] = [
+      {
+        label: 'Основной тренд вниз',
+        detail: `Падение уже видно к моменту сигнала; адаптивный порог ${percent(mainThreshold * 100)}.`,
+        value: percent(mainTrendDrop * 100),
+        passed: mainTrendDrop >= mainThreshold,
+      },
+      {
+        label: 'Локальный контртренд вверх',
+        detail: `Рост от локального минимума к верхней границе; адаптивный порог ${percent(counterThreshold * 100)}.`,
+        value: percent(counterTrendRise * 100),
+        passed: counterTrendRise >= counterThreshold,
+      },
+      {
+        label: 'Вершина не обновлена',
+        detail: 'На момент сигнала цена не обновила вершину локального контртренда.',
+        value: `${price(formationHigh)} ≤ ${price(upper)}`,
+        passed: formationHigh <= upper * 1.004,
+      },
+      {
+        label: 'Начало формации в зоне 0,236',
+        detail: 'Верх первых свечей формации находится в нижней зоне 0,236 диапазона; оставлен небольшой допуск на тени.',
+        value: percent(formationTopFromLow * 100),
+        passed: formationTopFromLow <= FIBONACCI_THRESHOLD * FIBONACCI_WICK_TOLERANCE,
+      },
+      {
+        label: 'Основной тренд больше по высоте',
+        detail: 'Абсолютное движение основного тренда должно превышать высоту локального контртренда.',
+        value: `${price(mainTrendMove)} > ${price(counterTrendMove)}`,
+        passed: mainTrendMove > counterTrendMove,
+      },
+      {
+        label: 'Основной тренд дольше',
+        detail: 'Основной тренд должен занимать больше свечей, чем локальное контртрендовое движение.',
+        value: `${mainTrendDuration} > ${counterTrendDuration} свечей`,
+        passed: mainTrendDuration > counterTrendDuration,
+      },
+    ]
 
-  if (!strictMatch && score < 83) return null
+    if (!criteria.every((criterion) => criterion.passed)) continue
 
-  return {
-    endIndex,
-    trendStartIndex,
-    counterLowIndex,
-    counterHighIndex,
-    formationStartIndex,
-    rangeLow,
-    formationHigh,
-    formationLow,
-    fibLevel,
-    score,
-    strictMatch,
-    criteria,
-    mainTrendDropPercent: mainTrendDrop * 100,
-    counterTrendRisePercent: counterTrendRise * 100,
-    formationHeightPercent: formationHeight * 100,
-    formationTopDepthPercent: formationTopDepth * 100,
+    return {
+      endIndex,
+      trendStartIndex,
+      counterLowIndex,
+      counterHighIndex,
+      formationStartIndex,
+      formationLength,
+      rangeLow,
+      formationHigh,
+      formationLow,
+      fibLevel,
+      score: 100,
+      strictMatch: true,
+      criteria,
+      mainTrendDropPercent: mainTrendDrop * 100,
+      counterTrendRisePercent: counterTrendRise * 100,
+      formationHeightPercent: formationHeight * 100,
+      formationTopDepthPercent: formationTopDepth * 100,
+    }
   }
+
+  return null
 }
 
 function toDate(time: UTCTimestamp) {
@@ -246,19 +236,38 @@ function toPatternCase(
   const upper = candles[candidate.counterHighIndex].high
   const counterLow = candles[candidate.counterLowIndex].low
   const eventTime = candles[candidate.endIndex].time
-  const chartStart = Math.max(0, candidate.trendStartIndex - 18)
-  const chartEnd = Math.min(candles.length, candidate.endIndex + 12)
+  const chartStart = Math.max(0, candidate.trendStartIndex - 10)
+  const requestedOutcomeBars = dataset.interval === '1h' ? 40 : 16
+  const outcomeEndIndex = Math.min(candles.length - 1, candidate.endIndex + requestedOutcomeBars)
+  const chartEnd = outcomeEndIndex + 1
+  const signalClose = candles[candidate.endIndex].close
+  const outcomeCandles = candles.slice(candidate.endIndex + 1, outcomeEndIndex + 1)
+  const outcomeLow = outcomeCandles.length
+    ? Math.min(...outcomeCandles.map((candle) => candle.low))
+    : signalClose
+  const outcomeHigh = outcomeCandles.length
+    ? Math.max(...outcomeCandles.map((candle) => candle.high))
+    : signalClose
+  const outcomeClose = candles[outcomeEndIndex].close
+  const maxDropPercent = ((signalClose - outcomeLow) / signalClose) * 100
+  const maxRisePercent = ((outcomeHigh - signalClose) / signalClose) * 100
+  const closeChangePercent = ((outcomeClose - signalClose) / signalClose) * 100
+  const outcomeLabel = outcomeCandles.length === 0
+    ? 'После сигнала данных пока нет'
+    : maxDropPercent > maxRisePercent
+      ? 'После сигнала преобладало падение'
+      : 'После сигнала преобладал рост'
 
   return {
     id: `${dataset.slug}-${eventTime}`,
     symbol: dataset.symbol,
     instrumentName: dataset.name,
-    title: `${dataset.symbol}: формация у нижней границы`,
-    subtitle: `Реальные дневные данные · завершение формации ${toDate(eventTime)}`,
+    title: `${dataset.symbol}: начало формации у нижней границы`,
+    subtitle: `Реальные ${dataset.interval.toUpperCase()} данные · сигнал появился ${toDate(eventTime)}`,
     timeframe: dataset.interval.toUpperCase() as PatternCase['timeframe'],
     direction: 'short',
     status: candidate.strictMatch ? 'valid' : 'warning',
-    statusLabel: candidate.strictMatch ? 'Все условия выполнены' : 'Близкий кандидат',
+    statusLabel: 'Сигнал сформирован',
     strictMatch: candidate.strictMatch,
     score: candidate.score,
     eventDate: toDate(eventTime),
@@ -294,11 +303,18 @@ function toPatternCase(
       formationHeightPercent: candidate.formationHeightPercent,
       formationTopDepthPercent: candidate.formationTopDepthPercent,
     },
+    outcome: {
+      bars: outcomeCandles.length,
+      endTime: candles[outcomeEndIndex].time,
+      closeChangePercent,
+      maxDropPercent,
+      maxRisePercent,
+      label: outcomeLabel,
+    },
     explanation:
-      `Зелёная стрелка показывает основной нисходящий импульс, синяя — локальный контртренд. Красные линии задают диапазон от вершины контртренда до локального минимума, оранжевая область — последние 24 свечи ${dataset.interval.toUpperCase()}.`,
-    verdict: candidate.strictMatch
-      ? 'Алгоритм считает участок совпадением с текущей формализацией: нисходящий контекст и контртренд присутствуют, вершина не обновлена, формация находится ниже уровня 0,236 и прижата к нижней границе.'
-      : 'Это ближайший визуально-числовой кандидат. Одно условие не прошло строгий фильтр — оно выделено ниже, поэтому участок нельзя считать подтверждённым совпадением.',
+      `Оранжевая область содержит первые ${candidate.formationLength} ${candidate.formationLength === 1 ? 'свечу' : 'свечи'} формации ${dataset.interval.toUpperCase()}. Свечи справа от метки «Сигнал» показаны только для проверки результата и не участвовали в поиске.`,
+    verdict:
+      'Сигнал появляется сразу после входа первых свечей формации в нижнюю зону 0,236. Основной тренд одновременно больше контртренда по высоте и продолжительности. Последующее движение не влияет на обнаружение.',
     criteria: candidate.criteria,
   }
 }
@@ -306,21 +322,17 @@ function toPatternCase(
 export function detectPatterns(dataset: MarketDataset): PatternCase[] {
   const candidates: DetectionCandidate[] = []
 
-  for (let endIndex = 245; endIndex < dataset.candles.length - 10; endIndex += 1) {
-    const candidate = scoreCandidate(dataset.candles, endIndex)
+  for (let endIndex = 160; endIndex < dataset.candles.length; endIndex += 1) {
+    const candidate = scoreCandidate(dataset.candles, endIndex, dataset.interval)
     if (candidate) candidates.push(candidate)
   }
 
   const selected: DetectionCandidate[] = []
-  for (const candidate of candidates.sort((a, b) => {
-    if (a.strictMatch !== b.strictMatch) return a.strictMatch ? -1 : 1
-    if (a.score !== b.score) return b.score - a.score
-    return b.endIndex - a.endIndex
-  })) {
-    const overlaps = selected.some(
-      (item) => Math.abs(item.endIndex - candidate.endIndex) < MIN_PATTERN_SPACING,
-    )
-    if (!overlaps) selected.push(candidate)
+  for (const candidate of candidates) {
+    const previous = selected.at(-1)
+    if (!previous || candidate.endIndex - previous.endIndex >= MIN_PATTERN_SPACING[dataset.interval]) {
+      selected.push(candidate)
+    }
   }
 
   return selected
@@ -330,5 +342,5 @@ export function detectPatterns(dataset: MarketDataset): PatternCase[] {
 
 export const detectorAssumptions = {
   fibonacciThreshold: FIBONACCI_THRESHOLD,
-  formationLength: FORMATION_LENGTH,
+  formationLengths: FORMATION_LENGTHS,
 }
