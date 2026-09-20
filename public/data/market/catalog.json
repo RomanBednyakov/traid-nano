@@ -1,0 +1,222 @@
+{
+  "generatedAt": "2026-09-20T09:43:45.543Z",
+  "source": "Yahoo Finance chart snapshot; 4H aggregated locally from 1H",
+  "instruments": [
+    {
+      "symbol": "AAPL",
+      "slug": "aapl",
+      "name": "Apple",
+      "category": "stocks",
+      "currency": "USD",
+      "exchange": "NasdaqGS",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/aapl-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/aapl-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "MSFT",
+      "slug": "msft",
+      "name": "Microsoft",
+      "category": "stocks",
+      "currency": "USD",
+      "exchange": "NasdaqGS",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/msft-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/msft-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "NVDA",
+      "slug": "nvda",
+      "name": "NVIDIA",
+      "category": "stocks",
+      "currency": "USD",
+      "exchange": "NasdaqGS",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/nvda-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/nvda-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "GC=F",
+      "slug": "gc-f",
+      "name": "Gold Futures",
+      "category": "gold",
+      "currency": "USD",
+      "exchange": "COMEX",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2024-04-29T04:00:00.000Z",
+          "endDate": "2026-09-18T20:59:59.000Z",
+          "candleCount": 13743,
+          "file": "/data/market/gc-f-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2024-04-29T04:00:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 3715,
+          "file": "/data/market/gc-f-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "GLD",
+      "slug": "gld",
+      "name": "SPDR Gold Shares",
+      "category": "gold",
+      "currency": "USD",
+      "exchange": "NYSEArca",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/gld-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/gld-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "TLT",
+      "slug": "tlt",
+      "name": "20+ Year Treasury ETF",
+      "category": "bonds",
+      "currency": "USD",
+      "exchange": "NasdaqGM",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/tlt-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/tlt-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "IEF",
+      "slug": "ief",
+      "name": "7–10 Year Treasury ETF",
+      "category": "bonds",
+      "currency": "USD",
+      "exchange": "NasdaqGM",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T20:00:00.000Z",
+          "candleCount": 5083,
+          "file": "/data/market/ief-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2023-10-23T13:30:00.000Z",
+          "endDate": "2026-09-18T17:30:00.000Z",
+          "candleCount": 1451,
+          "file": "/data/market/ief-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "BTC-USD",
+      "slug": "btc-usd",
+      "name": "Bitcoin",
+      "category": "crypto",
+      "currency": "USD",
+      "exchange": "CCC",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2024-09-22T00:00:00.000Z",
+          "endDate": "2026-09-20T09:43:37.000Z",
+          "candleCount": 17293,
+          "file": "/data/market/btc-usd-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2024-09-22T00:00:00.000Z",
+          "endDate": "2026-09-20T08:00:00.000Z",
+          "candleCount": 4327,
+          "file": "/data/market/btc-usd-4h.json"
+        }
+      }
+    },
+    {
+      "symbol": "ETH-USD",
+      "slug": "eth-usd",
+      "name": "Ethereum",
+      "category": "crypto",
+      "currency": "USD",
+      "exchange": "CCC",
+      "datasets": {
+        "1h": {
+          "interval": "1h",
+          "startDate": "2024-09-22T00:00:00.000Z",
+          "endDate": "2026-09-20T09:43:35.000Z",
+          "candleCount": 17293,
+          "file": "/data/market/eth-usd-1h.json"
+        },
+        "4h": {
+          "interval": "4h",
+          "startDate": "2024-09-22T00:00:00.000Z",
+          "endDate": "2026-09-20T08:00:00.000Z",
+          "candleCount": 4327,
+          "file": "/data/market/eth-usd-4h.json"
+        }
+      }
+    }
+  ]
+}
