@@ -135,17 +135,19 @@ export function PatternReviewPage() {
   return (
     <div className="min-h-screen bg-[#071011] text-[#e8f0ef]">
       <header className="border-b border-[#203032] bg-[#081214]">
-        <div className="mx-auto flex h-16 max-w-[1560px] items-center justify-between px-4 sm:px-6">
-          <Link to="/market" className="flex items-center gap-2 text-sm font-semibold tracking-[0.18em] text-white">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-teal-400 text-[#071011]">
-              <LineChart className="size-4" />
-            </span>
-            KOLA
-          </Link>
-          <nav className="flex items-center gap-1 text-sm">
-            <Link to="/market" className="rounded-lg px-3 py-2 text-[#829695] hover:bg-[#122123] hover:text-white">Рынок</Link>
-            <Link to="/mocks/pattern-review" className="rounded-lg bg-[#17302f] px-3 py-2 text-teal-200">Разбор формаций</Link>
-          </nav>
+        <div className="mx-auto flex h-16 max-w-[1560px] items-center px-4 sm:px-6">
+          <div className="flex items-center gap-5">
+            <Link to="/market" className="flex items-center gap-2 text-sm font-semibold tracking-[0.18em] text-white">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-teal-400 text-[#071011]">
+                <LineChart className="size-4" />
+              </span>
+              KOLA
+            </Link>
+            <nav className="flex items-center gap-1 text-sm" aria-label="Основная навигация">
+              <Link to="/market" className="rounded-lg px-3 py-2 text-[#829695] hover:bg-[#122123] hover:text-white">Рынок</Link>
+              <Link to="/mocks/pattern-review" className="rounded-lg bg-[#17302f] px-3 py-2 text-teal-200">Разбор формаций</Link>
+            </nav>
+          </div>
         </div>
       </header>
 
