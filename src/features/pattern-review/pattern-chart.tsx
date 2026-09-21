@@ -28,6 +28,7 @@ interface OverlayGeometry {
   trendEnd: Point
   counterStart: Point
   counterEnd: Point
+  innerPeak: Point
   rangeLeft: number
   rangeRight: number
   rangeHighY: number
@@ -89,6 +90,7 @@ function getCoordinates(
   const formationRight = chart.timeScale().timeToCoordinate(pattern.formation.endTime)
   const formationTop = series.priceToCoordinate(pattern.formation.high)
   const formationBottom = series.priceToCoordinate(pattern.formation.low)
+  const innerPeak = getPoint(chart, series, pattern.structure.innerPeakTime, pattern.structure.innerPeakPrice)
 
   const scalarValues = [
     rangeLeft,
@@ -107,6 +109,7 @@ function getCoordinates(
     !trendEnd ||
     !counterStart ||
     !counterEnd ||
+    !innerPeak ||
     scalarValues.some((value) => value === null)
   ) {
     return null
@@ -115,11 +118,12 @@ function getCoordinates(
   return {
     width: container.clientWidth,
     height: container.clientHeight,
-    chartRight: Math.max(container.clientWidth - 78, rangeRight!),
+    chartRight: chart.timeScale().width(),
     trendStart,
     trendEnd,
     counterStart,
     counterEnd,
+    innerPeak,
     rangeLeft: rangeLeft!,
     rangeRight: rangeRight!,
     rangeHighY: rangeHighY!,
@@ -179,7 +183,7 @@ function ChartOverlay({
 
   return (
     <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" aria-hidden="true">
-      <div
+      {pattern.candles.at(-1)!.time > pattern.structure.detectedTime && <div
         className="absolute bottom-7 top-0 z-0 border-l border-teal-300/25 bg-teal-300/[0.035]"
         style={{
           left: geometry.formationRight,
@@ -187,9 +191,9 @@ function ChartOverlay({
         }}
       >
         <span className="absolute right-2 top-2 rounded bg-[#071011cc] px-2 py-1 font-mono text-[9px] font-semibold uppercase tracking-wider text-[#607675]">
-          после сигнала · не участвует в поиске
+          продолжение · не участвует в поиске
         </span>
-      </div>
+      </div>}
       <svg
         className="absolute inset-0"
         viewBox={`0 0 ${geometry.width} ${geometry.height}`}
@@ -237,6 +241,8 @@ function ChartOverlay({
           opacity="0.95"
           markerEnd={`url(#${markerId}-blue)`}
         />
+        <circle cx={geometry.innerPeak.x} cy={geometry.innerPeak.y} r="5" fill="#fbbf24" stroke="#071011" strokeWidth="2" />
+        <text x={geometry.innerPeak.x} y={geometry.innerPeak.y - 12} fill="#fbbf24" fontSize="12" fontWeight="600" textAnchor="middle">E</text>
       </svg>
 
       <HorizontalLevel
@@ -244,14 +250,14 @@ function ChartOverlay({
         left={geometry.rangeLeft}
         right={geometry.chartRight}
         color="#fb7185"
-        label={`верх ${pattern.range.high.toFixed(2)}`}
+        label={`C · верх ${pattern.range.high.toFixed(2)}`}
       />
       <HorizontalLevel
         top={geometry.rangeLowY}
         left={geometry.rangeLeft}
         right={geometry.chartRight}
         color="#fb7185"
-        label={`низ ${pattern.range.low.toFixed(2)}`}
+        label={`D · низ ${pattern.range.low.toFixed(2)}`}
       />
       <HorizontalLevel
         top={geometry.fibY}
@@ -281,7 +287,7 @@ function ChartOverlay({
         style={{ left: geometry.formationRight }}
       >
         <span className="absolute -left-8 top-0 whitespace-nowrap rounded bg-teal-300 px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-[#061112]">
-          сигнал
+          распознано
         </span>
       </div>
 
@@ -289,13 +295,13 @@ function ChartOverlay({
         className="absolute z-30 -translate-x-1/2 rounded bg-emerald-400/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-emerald-300"
         style={{ left: geometry.trendStart.x, top: geometry.trendStart.y - 22 }}
       >
-        основной тренд
+        A · основной тренд
       </span>
       <span
         className="absolute z-30 -translate-x-1/2 rounded bg-blue-400/15 px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase text-blue-300"
         style={{ left: geometry.counterStart.x, top: geometry.counterStart.y + 8 }}
       >
-        контртренд
+        B · контртренд
       </span>
     </div>
   )
@@ -308,6 +314,7 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
+    setGeometry(null)
 
     const chart = createChart(container, {
       autoSize: true,
@@ -334,7 +341,7 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
         timeVisible: true,
         rightOffset: 7,
         barSpacing: 5,
-        minBarSpacing: 2.5,
+        minBarSpacing: 0.1,
       },
       handleScale: true,
       handleScroll: true,
@@ -358,9 +365,11 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
     })
     series.setData(pattern.candles)
 
+    let disposed = false
     const updateOverlay = () => {
+      if (disposed) return
       const nextGeometry = getCoordinates(chart, series, container, pattern)
-      if (nextGeometry) setGeometry(nextGeometry)
+      setGeometry(nextGeometry)
     }
 
     chart.timeScale().fitContent()
@@ -369,10 +378,18 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
 
     const resizeObserver = new ResizeObserver(() => requestAnimationFrame(updateOverlay))
     resizeObserver.observe(container)
+    // Price-axis drag does not emit a logical-time range change.
+    container.addEventListener('pointermove', updateOverlay)
+    container.addEventListener('pointerup', updateOverlay)
+    container.addEventListener('wheel', updateOverlay, { passive: true })
 
     return () => {
+      disposed = true
       cancelAnimationFrame(frame)
       resizeObserver.disconnect()
+      container.removeEventListener('pointermove', updateOverlay)
+      container.removeEventListener('pointerup', updateOverlay)
+      container.removeEventListener('wheel', updateOverlay)
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateOverlay)
       chart.remove()
     }

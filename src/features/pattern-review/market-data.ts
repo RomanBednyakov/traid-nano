@@ -1,4 +1,5 @@
 import type { MarketCatalog, MarketDataset } from './types'
+import { prepareHistory } from './data-integrity'
 
 const datasetCache = new Map<string, MarketDataset>()
 
@@ -16,7 +17,10 @@ export async function loadMarketDataset(file: string, signal?: AbortSignal) {
   const cached = datasetCache.get(file)
   if (cached) return cached
 
-  const dataset = await fetchJson<MarketDataset>(file, signal)
+  // Legacy 4H files grouped every four records, even across missing hours.
+  const hourlyFile = file.replace(/-4h\.json$/, '-1h.json')
+  const raw = await fetchJson<MarketDataset>(hourlyFile, signal)
+  const dataset = prepareHistory(raw, file.endsWith('-4h.json') ? '4h' : '1h')
   datasetCache.set(file, dataset)
   return dataset
 }

@@ -28,11 +28,11 @@ vi.mock('./pattern-chart', () => ({
     pattern,
     showAnnotations,
   }: {
-    pattern: { id: string }
+    pattern: { id: string; candles: unknown[] }
     showAnnotations: boolean
   }) => (
     <div data-testid="pattern-chart">
-      {pattern.id} · annotations:{showAnnotations ? 'on' : 'off'}
+      {pattern.id} · candles:{pattern.candles.length} · annotations:{showAnnotations ? 'on' : 'off'}
     </div>
   ),
 }))
@@ -82,7 +82,12 @@ function pattern(id: string, title: string, strictMatch = true) {
     strictMatch,
     score: strictMatch ? 100 : 83,
     eventDate: '20 сент. 2025 г.',
-    candles: [],
+    candles: [{ time: 5, open: 90, close: 90, high: 92, low: 88 }],
+    futureCandles: [
+      { time: 6, open: 90, close: 96, high: 98, low: 89 },
+      { time: 7, open: 96, close: 76, high: 97, low: 75 },
+    ],
+    structure: { innerPeakTime: 4, innerPeakPrice: 95, detectedTime: 5, confirmationBars: 2, mainBars: 40, counterBars: 16, mainMove: 30, counterMove: 20, radius: 2, indices: [] },
     trend: { startTime: 1, startPrice: 120, endTime: 2, endPrice: 90 },
     counterTrend: { startTime: 2, startPrice: 90, endTime: 3, endPrice: 110 },
     range: { startTime: 3, endTime: 4, high: 110, low: 80 },
@@ -127,16 +132,43 @@ function renderPage() {
 
 beforeEach(() => {
   mocks.loadMarketCatalog.mockReset().mockResolvedValue(catalog)
-  mocks.loadMarketDataset.mockReset().mockResolvedValue({ slug: 'aapl' })
+  mocks.loadMarketDataset.mockReset().mockResolvedValue({ slug: 'aapl', candles: [] })
   mocks.detectPatterns.mockReset().mockReturnValue(detectedPatterns)
 })
 
 describe('PatternReviewPage', () => {
+  it('reveals only requested future candles and resets on navigation', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('AAPL · внутренняя вершина')
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:1')
+    expect(screen.queryByText('Макс. падение')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '+1 свеча' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:2')
+    expect(screen.queryByText(/Пробита нижняя граница D/)).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Показать продолжение' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:3')
+    expect(screen.getByText(/Пробита нижняя граница D/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:1')
+    await user.click(screen.getByRole('button', { name: '+1 свеча' }))
+    await user.click(screen.getByRole('button', { name: 'Далее' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second · candles:1')
+  })
+
+  it('shows an honest empty result, not an endless search', async () => {
+    mocks.detectPatterns.mockReturnValue([])
+    renderPage()
+    expect(await screen.findByText('0 формаций')).toBeInTheDocument()
+    expect(screen.getByText('Подходящих формаций пока нет.')).toBeInTheDocument()
+    expect(screen.queryByText('Ищем формации…')).not.toBeInTheDocument()
+  })
+
   it('loads real-data candidates and moves to the next match', async () => {
     const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText('AAPL · начало формации')).toBeInTheDocument()
+    expect(await screen.findByText('AAPL · внутренняя вершина')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Далее' }))
 
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second')
@@ -146,7 +178,7 @@ describe('PatternReviewPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByText('AAPL · начало формации')
+    await screen.findByText('AAPL · внутренняя вершина')
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('annotations:on')
     await user.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('annotations:off')
@@ -156,7 +188,7 @@ describe('PatternReviewPage', () => {
 
   it('supports arrow-key navigation and wraps backwards', async () => {
     renderPage()
-    await screen.findByText('AAPL · начало формации')
+    await screen.findByText('AAPL · внутренняя вершина')
 
     fireEvent.keyDown(window, { key: 'ArrowLeft' })
     await waitFor(() => expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second'))

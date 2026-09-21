@@ -33,6 +33,14 @@ export interface MarketDataset extends Omit<MarketInstrument, 'datasets'> {
   adjusted: boolean
   source: string
   fetchedAt: string
+  quality?: {
+    sourceBars: number
+    excludedHourlyBars: number
+    droppedBuckets: number
+    breakBeforeTimes: number[]
+    aggregation: string
+    calendarVerified: boolean
+  }
   candles: CandlestickData<UTCTimestamp>[]
 }
 
@@ -80,6 +88,19 @@ export interface PatternCase {
   score: number
   eventDate: string
   candles: CandlestickData<UTCTimestamp>[]
+  futureCandles: CandlestickData<UTCTimestamp>[]
+  structure: {
+    innerPeakTime: UTCTimestamp
+    innerPeakPrice: number
+    detectedTime: UTCTimestamp
+    confirmationBars: number
+    mainBars: number
+    counterBars: number
+    mainMove: number
+    counterMove: number
+    radius: number
+    indices: number[]
+  }
   trend: {
     startTime: UTCTimestamp
     startPrice: number
@@ -112,6 +133,7 @@ export interface PatternCase {
     formationTopDepthPercent: number
   }
   outcome: {
+    events: Array<{ time: UTCTimestamp; label: string }>
     bars: number
     endTime: UTCTimestamp
     closeChangePercent: number

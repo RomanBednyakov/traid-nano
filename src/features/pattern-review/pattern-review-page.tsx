@@ -24,10 +24,12 @@ import {
 } from '@/components/ui/select'
 
 import { loadMarketCatalog, loadMarketDataset } from './market-data'
+import { describeContinuation } from './continuation'
 import { detectPatterns } from './pattern-detector'
 import { PatternChart } from './pattern-chart'
 import type {
   MarketCatalog,
+  MarketDataset,
   MarketCategory,
   MarketTimeframe,
   PatternCase,
@@ -46,8 +48,8 @@ const legend = [
   { color: '#4ade80', title: 'Основной тренд', text: 'направлен вниз' },
   { color: '#60a5fa', title: 'Локальный контртренд', text: 'движение вверх к вершине диапазона' },
   { color: '#fb7185', title: 'Красные линии', text: 'верхняя и нижняя границы диапазона' },
-  { color: '#fbbf24', title: 'Начало формации', text: 'первые свечи у нижней границы' },
-  { color: '#a78bfa', title: 'Зона 0,236', text: 'рабочая область от нижней границы' },
+  { color: '#fbbf24', title: 'Внутренняя структура D–E', text: 'подъём к внутренней вершине' },
+  { color: '#a78bfa', title: '0,236 от верха', text: 'рабочая трактовка эталонов' },
 ]
 
 const formatPeriod = (value?: string) => value
@@ -63,7 +65,9 @@ export function PatternReviewPage() {
   const [selectedSlug, setSelectedSlug] = useState('aapl')
   const [timeframe, setTimeframe] = useState<MarketTimeframe>('1h')
   const [patterns, setPatterns] = useState<PatternCase[]>([])
+  const [loadedDataset, setLoadedDataset] = useState<MarketDataset | null>(null)
   const [index, setIndex] = useState(0)
+  const [replay, setReplay] = useState({ key: '', bars: 0 })
   const [showAnnotations, setShowAnnotations] = useState(true)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
 
@@ -73,9 +77,7 @@ export function PatternReviewPage() {
       .then((nextCatalog) => {
         if (controller.signal.aborted) return
         setCatalog(nextCatalog)
-        if (!nextCatalog.instruments.some((item) => item.slug === selectedSlug)) {
-          setSelectedSlug(nextCatalog.instruments[0]?.slug ?? '')
-        }
+        setSelectedSlug(current => nextCatalog.instruments.some(item => item.slug === current) ? current : nextCatalog.instruments[0]?.slug ?? '')
       })
       .catch(() => {
         if (!controller.signal.aborted) setStatus('error')
@@ -94,12 +96,14 @@ export function PatternReviewPage() {
     const controller = new AbortController()
     setStatus('loading')
     setPatterns([])
+    setLoadedDataset(null)
     setIndex(0)
 
     loadMarketDataset(selectedDataset.file, controller.signal)
       .then((dataset) => {
         if (controller.signal.aborted) return
         const matches = detectPatterns(dataset)
+        setLoadedDataset(dataset)
         setPatterns(matches)
         setStatus(matches.length ? 'ready' : 'empty')
       })
@@ -113,12 +117,13 @@ export function PatternReviewPage() {
   const move = useCallback((direction: number) => {
     if (!patterns.length) return
     setIndex((value) => (value + direction + patterns.length) % patterns.length)
+    setReplay({ key: '', bars: 0 })
   }, [patterns.length])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target
-      if (target instanceof Element && target.closest('[role="listbox"], input, textarea')) return
+      if (target instanceof Element && target.closest('[role="listbox"], [role="combobox"], input, textarea, select, [contenteditable="true"]')) return
       if (event.key === 'ArrowLeft') move(-1)
       if (event.key === 'ArrowRight') move(1)
     }
@@ -127,6 +132,15 @@ export function PatternReviewPage() {
   }, [move])
 
   const pattern = patterns[index]
+  const replayKey = selectedSlug + ':' + timeframe + ':' + pattern?.id
+  const revealed = replay.key === replayKey ? replay.bars : 0
+  const displayPattern = useMemo(() => pattern ? {
+    ...pattern, candles: [...pattern.candles, ...pattern.futureCandles.slice(0, revealed)],
+  } : undefined, [pattern, revealed])
+  const visibleOutcome = useMemo(() => pattern ? describeContinuation(
+    pattern.candles.at(-1)!, pattern.futureCandles.slice(0, revealed),
+    pattern.range.high, pattern.range.low, pattern.structure.innerPeakPrice,
+  ) : undefined, [pattern, revealed])
   const passed = useMemo(
     () => pattern?.criteria.filter((item) => item.passed).length ?? 0,
     [pattern],
@@ -157,8 +171,8 @@ export function PatternReviewPage() {
             <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.15em] text-[#607675]">
               Торговый инструмент
             </label>
-            <Select value={selectedSlug} onValueChange={setSelectedSlug} disabled={!catalog}>
-              <SelectTrigger className="h-11 w-full border-[#2b4042] bg-[#091315] text-white">
+            <Select value={selectedSlug} onValueChange={(slug) => { setSelectedSlug(slug); setReplay({ key: '', bars: 0 }) }} disabled={!catalog}>
+              <SelectTrigger aria-label="Торговый инструмент" className="h-11 w-full border-[#2b4042] bg-[#091315] text-white">
                 <SelectValue placeholder="Выбрать инструмент" />
               </SelectTrigger>
               <SelectContent>
@@ -189,7 +203,7 @@ export function PatternReviewPage() {
                 <button
                   key={item}
                   type="button"
-                  onClick={() => setTimeframe(item)}
+                  onClick={() => { setTimeframe(item); setReplay({ key: '', bars: 0 }) }}
                   className={`rounded-lg px-5 py-2 text-sm font-semibold transition ${timeframe === item ? 'bg-teal-400 text-[#061112]' : 'text-[#829695] hover:text-white'}`}
                 >
                   {item === '1h' ? '1 час' : '4 часа'}
@@ -203,20 +217,26 @@ export function PatternReviewPage() {
               История: <strong className="font-medium text-white">{formatPeriod(selectedDataset?.startDate)} — {formatPeriod(selectedDataset?.endDate)}</strong>
             </span>
             <span className="rounded-lg border border-[#2b4042] bg-[#091315] px-3 py-2 text-xs text-[#829695]">
-              Проверено: <strong className="font-medium text-white">{selectedDataset?.candleCount.toLocaleString('ru-RU') ?? '—'} свечей</strong>
+              Проверено: <strong className="font-medium text-white">{loadedDataset?.candles.length.toLocaleString('ru-RU') ?? '—'} свечей</strong>
             </span>
             <span className="rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-2 text-xs text-teal-200">
-              {status === 'ready' ? <><strong>{patterns.length}</strong> сигналов</> : 'Ищем сигналы…'}
+              {status === 'ready' ? <><strong>{patterns.length}</strong> формаций</> : status === 'empty' ? '0 формаций' : status === 'error' ? 'Ошибка загрузки' : 'Ищем формации…'}
             </span>
           </div>
         </section>
+
+        {loadedDataset?.quality && <details className="mb-4 rounded-xl border border-[#203032] px-4 py-3 text-xs text-[#9badaa]">
+          <summary className="cursor-pointer">О данных · {loadedDataset.quality.aggregation}{loadedDataset.quality.breakBeforeTimes.length > 0 ? ` · разрывов: ${loadedDataset.quality.breakBeforeTimes.length}` : ''}</summary>
+          <p className="mt-2 leading-5">Исключено незакрытых или вне сетки 1H: {loadedDataset.quality.excludedHourlyBars}. Неполных блоков 4H: {loadedDataset.quality.droppedBuckets}. Поиск не соединяет участки через обнаруженные пропуски.</p>
+          {!loadedDataset.quality.calendarVerified && <p className="mt-2 leading-5">Полнота истории по календарю биржи пока не проверена. Для фьючерса на золото границы 4H заданы по UTC.</p>}
+        </details>}
 
         {status !== 'ready' || !pattern ? (
           <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-[#203032] bg-[#0b1517] p-6 text-center text-[#829695]">
             <div>
               {status === 'error'
                 ? <AlertTriangle className="mx-auto mb-4 size-7 text-rose-400" />
-                : <LoaderCircle className="mx-auto mb-4 size-7 animate-spin text-teal-400" />}
+                : status === 'empty' ? <LineChart className="mx-auto mb-4 size-7 text-[#829695]" /> : <LoaderCircle className="mx-auto mb-4 size-7 animate-spin text-teal-400" />}
               <p>
                 {status === 'catalog' || status === 'loading'
                   ? 'Ищем формации в рыночных данных…'
@@ -234,8 +254,8 @@ export function PatternReviewPage() {
                   <div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">
                     Случай {index + 1} из {patterns.length} · {pattern.timeframe}
                   </div>
-                  <h1 className="text-xl font-semibold text-white">{pattern.symbol} · начало формации</h1>
-                  <p className="mt-1 text-sm text-[#829695]">Сигнал появился: {pattern.eventDate}</p>
+                  <h1 className="text-xl font-semibold text-white">{pattern.symbol} · внутренняя вершина</h1>
+                  <p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {pattern.eventDate} UTC</p>
                 </div>
                 <Button
                   variant="outline"
@@ -247,7 +267,18 @@ export function PatternReviewPage() {
                   {showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}
                 </Button>
               </div>
-              <PatternChart pattern={pattern} showAnnotations={showAnnotations} />
+              <PatternChart key={pattern.id} pattern={displayPattern!} showAnnotations={showAnnotations} />
+              <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
+                <Button variant="outline" size="sm" disabled={!pattern.futureCandles.length || revealed === pattern.futureCandles.length}
+                  onClick={() => setReplay({ key: replayKey, bars: pattern.futureCandles.length })}>Показать продолжение</Button>
+                <Button variant="outline" size="sm" disabled={revealed >= pattern.futureCandles.length}
+                  onClick={() => setReplay({ key: replayKey, bars: revealed + 1 })}>+1 свеча</Button>
+                <Button variant="ghost" size="sm" disabled={!revealed}
+                  onClick={() => setReplay({ key: replayKey, bars: 0 })}>Скрыть продолжение</Button>
+                <span className="text-xs text-[#829695]" aria-live="polite">
+                  {pattern.futureCandles.length ? `Открыто ${revealed} из ${pattern.futureCandles.length} следующих свечей` : 'Данных о продолжении нет'}
+                </span>
+              </div>
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[#203032] p-4 text-xs text-[#829695]">
                 {legend.map((item) => (
                   <div key={item.title} className="flex items-center gap-2">
@@ -263,21 +294,16 @@ export function PatternReviewPage() {
                 <div className="flex items-center gap-2">
                   {pattern.strictMatch ? <CheckCircle2 className="size-5 text-teal-300" /> : <AlertTriangle className="size-5 text-amber-300" />}
                   <span className={`font-semibold ${pattern.strictMatch ? 'text-teal-200' : 'text-amber-200'}`}>
-                    {pattern.strictMatch ? 'Точка постановки найдена' : 'Нужно проверить глазами'}
+                    {pattern.strictMatch ? 'Формация распознана' : 'Нужно проверить глазами'}
                   </span>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-[#9badaa]">
-                  {pattern.strictMatch ? 'Будущие свечи при поиске не использовались.' : 'Условия выполнены не полностью.'}
+                  {pattern.strictMatch ? 'Кандидат по рабочим правилам. Не команда на вход: условие входа ещё не согласовано.' : 'Условия выполнены не полностью.'}
                 </p>
               </div>
 
               <div className="mt-5 space-y-3">
-                {[
-                  { label: 'Основной тренд направлен вниз', passed: pattern.criteria[0]?.passed },
-                  { label: 'Есть локальный контртренд вверх', passed: pattern.criteria[1]?.passed },
-                  { label: 'Основной тренд больше и дольше контртренда', passed: pattern.criteria.slice(4, 6).every((item) => item.passed) },
-                  { label: 'Начало формации находится в зоне 0,236', passed: pattern.criteria.slice(2, 4).every((item) => item.passed) },
-                ].map((item) => (
+                {pattern.criteria.map((item) => (
                   <div key={item.label} className="flex items-center gap-2.5 text-sm">
                     {item.passed
                       ? <CheckCircle2 className="size-4 shrink-0 text-teal-300" />
@@ -302,33 +328,40 @@ export function PatternReviewPage() {
                     </div>
                   ))}
                   <p className="border-t border-[#203032] pt-3 leading-4 text-violet-200/70">
-                    Зона 0,236 откладывается вверх от нижней красной границы. График заканчивается на свече сигнала.
+                    Рабочая трактовка: верхняя граница − 0,236 × высота боковика. Требует подтверждения заказчиком. Распознавание использует только свечи до метки включительно.
                   </p>
                 </div>
               </details>
 
               <div className="mt-5 rounded-xl border border-[#203032] bg-[#091315] p-4">
                 <div className="text-xs font-semibold uppercase tracking-wider text-[#829695]">Что произошло после</div>
-                <div className="mt-2 text-sm font-medium text-white">{pattern.outcome.label}</div>
+                {revealed > 0 ? <>
+                <div className="mt-2 text-sm font-medium text-white">{visibleOutcome!.label}</div>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                   <div className="rounded-lg bg-rose-400/10 p-2">
                     <div className="text-[#607675]">Макс. падение</div>
-                    <div className="mt-1 font-semibold text-rose-300">−{pattern.outcome.maxDropPercent.toFixed(1)}%</div>
+                    <div className="mt-1 font-semibold text-rose-300">−{visibleOutcome!.maxDropPercent.toFixed(1)}%</div>
                   </div>
                   <div className="rounded-lg bg-teal-400/10 p-2">
                     <div className="text-[#607675]">Макс. рост</div>
-                    <div className="mt-1 font-semibold text-teal-300">+{pattern.outcome.maxRisePercent.toFixed(1)}%</div>
+                    <div className="mt-1 font-semibold text-teal-300">+{visibleOutcome!.maxRisePercent.toFixed(1)}%</div>
                   </div>
                   <div className="rounded-lg bg-white/[0.04] p-2">
                     <div className="text-[#607675]">Закрытие</div>
-                    <div className={`mt-1 font-semibold ${pattern.outcome.closeChangePercent <= 0 ? 'text-rose-300' : 'text-teal-300'}`}>
-                      {pattern.outcome.closeChangePercent > 0 ? '+' : ''}{pattern.outcome.closeChangePercent.toFixed(1)}%
+                    <div className={`mt-1 font-semibold ${visibleOutcome!.closeChangePercent <= 0 ? 'text-rose-300' : 'text-teal-300'}`}>
+                      {visibleOutcome!.closeChangePercent > 0 ? '+' : ''}{visibleOutcome!.closeChangePercent.toFixed(1)}%
                     </div>
                   </div>
                 </div>
                 <p className="mt-2 text-[11px] leading-4 text-[#607675]">
-                  Проверено {pattern.outcome.bars} свечей после метки. Эти данные не влияют на обнаружение.
+                  Открыто {visibleOutcome!.bars} свечей после метки. Изменения цены — от закрытия свечи распознавания, не результат сделки.
                 </p>
+                <ul className="mt-3 space-y-2 text-xs text-[#9badaa]">
+                  {visibleOutcome!.events.map((event) => <li key={event.time + event.label}>
+                    {new Date(event.time * 1000).toLocaleString('ru-RU', { timeZone: 'UTC' })} UTC — {event.label}
+                  </li>)}
+                </ul>
+                </> : <p className="mt-2 text-xs leading-5 text-[#9badaa]">Продолжение скрыто. Откройте следующие свечи кнопками под графиком, чтобы проверить развитие структуры.</p>}
               </div>
 
               <div className="mt-auto grid grid-cols-2 gap-2 pt-5">
@@ -345,7 +378,7 @@ export function PatternReviewPage() {
 
         <footer className="mt-4 flex flex-col gap-2 rounded-xl border border-[#203032] bg-[#091315] px-4 py-3 text-xs text-[#607675] sm:flex-row sm:items-center sm:justify-between">
           <span className="flex items-center gap-2"><Database className="size-3.5" /> Локальный adjusted OHLC snapshot · Yahoo Finance Chart · внешних запросов со страницы нет</span>
-          <span>Сигнал формируется без будущих свечей; требуется проверка риск-менеджмента</span>
+          <span>Исследовательский поиск структуры · правило входа не подтверждено</span>
         </footer>
       </main>
     </div>
