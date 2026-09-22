@@ -19,7 +19,7 @@ describe('downloaded history: geometry and causality, never a count quota', () =
         console.info(instrument.symbol, timeframe, patterns.length, 'structures (not customer-validated)')
         console.info('history quality', dataset.quality)
         expect(new Set(patterns.map(p => p.id)).size).toBe(patterns.length)
-        for (const p of patterns) {
+        for (const p of patterns.flatMap(first => [first, ...(first.revisions ?? [])])) {
           checked++
           const [a, b, c, d, e, detected] = p.structure.indices
           expect(a < b && b < c && c < d && d < e && e < detected).toBe(true)
@@ -37,9 +37,10 @@ describe('downloaded history: geometry and causality, never a count quota', () =
         }
         // Earliest, middle, latest: exact metadata must survive truncation.
         const sample = [patterns[0], patterns[Math.floor(patterns.length / 2)], patterns.at(-1)].filter(p => p !== undefined)
+        sample.push(...patterns.flatMap(p => p.revisions ?? []))
         for (const p of sample) {
           const prefix = detectPatterns({ ...dataset, candles: dataset.candles.slice(0, p.structure.indices[5] + 1) })
-          const found = prefix.find(other => other.id === p.id)!
+          const found = prefix.flatMap(first => [first, ...(first.revisions ?? [])]).find(other => other.id === p.id && other.structure.detectedTime === p.structure.detectedTime)!
           expect(found).toBeDefined()
           expect(found.structure).toEqual(p.structure)
           expect(found.formation).toEqual(p.formation)

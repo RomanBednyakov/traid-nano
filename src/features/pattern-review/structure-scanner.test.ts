@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { UTCTimestamp } from 'lightweight-charts'
-import { confirmedPivots, fibonacciCeiling, scanStructures } from './structure-scanner'
+import { confirmedPivots, fibonacciCeiling, scanStructures, scanStructureStages } from './structure-scanner'
 import { detectPatterns } from './pattern-detector'
 import type { MarketDataset } from './types'
 
@@ -63,6 +63,40 @@ describe('customer reference structure (not a profitability test)', () => {
     const complex: [number, number][] = [[0, 820], [4, 840], [44, 728], [51, 752], [55, 745], [64, 770], [78, 735.4], [84, 747], [88, 740], [98, 760], [104, 750]]
     const signals = scanStructures(candles(complex), [2])
     expect(signals.some(s => s.trendLow.index === 44 && s.outerHigh.index === 64 && s.rangeLow.index === 78)).toBe(true)
+  })
+
+  it('retains the higher inner peak after an early smaller bump (reference images 1, 3 and 6)', () => {
+    // Approximate geometry manually read from the screenshots. These are NOT
+    // recovered market candles; exact historical recall needs ticker/timeframe/date.
+    const references: { points: [number, number][]; c: number; d: number; early: number; mature: number }[] = [
+      { points: [[0,750],[17,770],[55,690],[71,710],[88,675],[110,700],[137,554],[148,630],[174,527],[194,556],[218,507],[248,583],[254,545],[285,667],[297,640],[310,694.2],[327,587.8],[334,631],[337,620],[343,655],[350,610],[365,593]], c:310,d:327,early:334,mature:343 },
+      { points: [[0,5480],[14,5588],[22,5530],[29,5410],[37,5515],[38,5235],[53,5280],[56,5190],[64,5240],[82,5048],[105,5295.5],[128,5097.5],[144,5145],[147,5101],[153,5238],[157,5180],[162,5230],[170,5120]], c:105,d:128,early:144,mature:153 },
+      { points: [[0,1028],[7,1048],[12,1038],[15,1045],[25,983],[30,989],[35,930],[42,931],[49,898],[56,936],[60,929],[64,958],[71,941],[78,970],[85,915],[89,933],[92,921],[98,946],[105,937],[112,932],[117,919]], c:78,d:85,early:89,mature:98 },
+    ]
+    for (const { points, c, d, early, mature } of references) {
+      const bars = candles(points)
+      const stages = scanStructureStages(bars).find(stages => stages[0].outerHigh.index === c && stages[0].rangeLow.index === d)!
+      expect(stages.map(s => s.innerHigh.index)).toEqual([early, mature])
+      // The earlier observation is immutable; later geometry only exists once
+      // its own right-hand confirming bars have closed.
+      for (let length = early + 1; length <= bars.length; length++) {
+        const prefix = scanStructureStages(bars.slice(0, length)).find(stages => stages[0].outerHigh.index === c && stages[0].rangeLow.index === d) ?? []
+        expect(prefix).toEqual(stages.filter(s => s.detectedAt < length))
+      }
+      const [first] = detectPatterns(dataset(bars)).filter(p => p.structure.indices[2] === c && p.structure.indices[3] === d)
+      expect(first.structure.indices[4]).toBe(early)
+      expect(first.revisions?.map(p => p.structure.indices[4])).toEqual([mature])
+      expect(first.revisions?.[0].candles.at(-1)?.time).toBe(first.revisions?.[0].structure.detectedTime)
+    }
+  })
+
+  it('does not add a stage after a range break or above the Fibonacci ceiling', () => {
+    const broken = candles([...reference, [95,730], [102,761], [110,745]])
+    const tooHigh = candles([...reference, [102,768], [110,745]])
+    for (const bars of [broken, tooHigh]) {
+      const stages = scanStructureStages(bars).find(stages => stages[0].outerHigh.index === 60 && stages[0].rangeLow.index === 72)!
+      expect(stages).toHaveLength(1)
+    }
   })
 
   it('never exposes an unconfirmed pivot', () => {

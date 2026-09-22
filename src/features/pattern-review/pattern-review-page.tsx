@@ -67,6 +67,7 @@ export function PatternReviewPage() {
   const [patterns, setPatterns] = useState<PatternCase[]>([])
   const [loadedDataset, setLoadedDataset] = useState<MarketDataset | null>(null)
   const [index, setIndex] = useState(0)
+  const [stageSelection, setStageSelection] = useState({ key: '', index: 0 })
   const [replay, setReplay] = useState({ key: '', bars: 0 })
   const [showAnnotations, setShowAnnotations] = useState(true)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
@@ -117,6 +118,7 @@ export function PatternReviewPage() {
   const move = useCallback((direction: number) => {
     if (!patterns.length) return
     setIndex((value) => (value + direction + patterns.length) % patterns.length)
+    setStageSelection({ key: '', index: 0 })
     setReplay({ key: '', bars: 0 })
   }, [patterns.length])
 
@@ -131,8 +133,12 @@ export function PatternReviewPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [move])
 
-  const pattern = patterns[index]
-  const replayKey = selectedSlug + ':' + timeframe + ':' + pattern?.id
+  const firstPattern = patterns[index]
+  const stages = useMemo(() => firstPattern ? [firstPattern, ...(firstPattern.revisions ?? [])] : [], [firstPattern])
+  const caseKey = selectedSlug + ':' + timeframe + ':' + firstPattern?.id
+  const stageIndex = stageSelection.key === caseKey ? Math.min(stageSelection.index, stages.length - 1) : stages.length - 1
+  const pattern = stages[stageIndex]
+  const replayKey = caseKey + ':' + pattern?.structure.detectedTime
   const revealed = replay.key === replayKey
     ? replay.bars
     : pattern?.futureCandles.length ?? 0
@@ -269,6 +275,16 @@ export function PatternReviewPage() {
                   {showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}
                 </Button>
               </div>
+              {stages.length > 1 && <div className="border-b border-[#203032] px-5 py-3 text-xs text-[#9badaa]">
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-medium text-teal-200">Развитие формации · этап {stageIndex + 1} из {stages.length}</span>
+                  <Button variant="outline" size="sm" disabled={stageIndex === 0}
+                    onClick={() => setStageSelection({ key: caseKey, index: stageIndex - 1 })}>Раньше</Button>
+                  <Button variant="outline" size="sm" disabled={stageIndex === stages.length - 1}
+                    onClick={() => setStageSelection({ key: caseKey, index: stageIndex + 1 })}>Позже</Button>
+                </div>
+                <p className="mt-2 leading-5">Первое обнаружение: {firstPattern.eventDate} UTC. Более высокая внутренняя вершина — новый этап той же формации. Метка показывает, когда выбранный этап стал известен.</p>
+              </div>}
               <PatternChart key={pattern.id} pattern={displayPattern!} showAnnotations={showAnnotations} />
               <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
                 <Button variant="outline" size="sm" disabled={!pattern.futureCandles.length || revealed === pattern.futureCandles.length}

@@ -137,6 +137,26 @@ beforeEach(() => {
 })
 
 describe('PatternReviewPage', () => {
+  it('shows the developed inner peak and lets the user inspect its first detection without counting it twice', async () => {
+    const user = userEvent.setup()
+    const first = pattern('evolving', 'First peak')
+    const later = { ...pattern('evolving', 'Higher peak'), eventDate: 'Later date', structure: { ...first.structure, detectedTime: 8 }, candles: [...first.candles, { time: 8, open: 92, close: 91, high: 97, low: 90 }] }
+    mocks.detectPatterns.mockReturnValue([{ ...first, revisions: [later] }, detectedPatterns[1]])
+    renderPage()
+    await screen.findByText('Развитие формации · этап 2 из 2')
+    expect(screen.getByText('Свеча распознавания: Later date UTC')).toBeInTheDocument()
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:4')
+    await user.click(screen.getByRole('button', { name: 'Раньше' }))
+    expect(screen.getByText('Развитие формации · этап 1 из 2')).toBeInTheDocument()
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:3')
+    await user.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:1')
+    await user.click(screen.getByRole('button', { name: 'Позже' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:4')
+    await user.click(screen.getByRole('button', { name: 'Далее' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second')
+    expect(screen.queryByText(/Развитие формации/)).not.toBeInTheDocument()
+  })
   it('shows the full continuation by default and still supports candle replay', async () => {
     const user = userEvent.setup()
     renderPage()

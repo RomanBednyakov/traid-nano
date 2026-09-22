@@ -78,7 +78,7 @@ function isIntact(candles: Candle[], high: Pivot, low: Pivot, until: number) {
  * E must turn down and become observable while the C-D range is still intact.
  * No future outcome, fixed candle rectangle, signal quota or timed cooldown.
  */
-export function scanStructures(candles: Candle[], radii: readonly number[] = scannerSettings.radii): StructureSignal[] {
+export function scanStructureStages(candles: Candle[], radii: readonly number[] = scannerSettings.radii): StructureSignal[][] {
   const atr = trueRangeAverage(candles)
   const signals: StructureSignal[] = []
   for (const radius of radii) {
@@ -149,12 +149,19 @@ export function scanStructures(candles: Candle[], radii: readonly number[] = sca
     }
   }
 
-  // First observable instance wins across resolutions and subsequent inner peaks.
-  // Identity is the fixed outer range, never proximity in time or later profit.
-  const unique = new Map<string, StructureSignal>()
+  // A range is one case, but its inner structure can develop a higher peak.
+  // Preserve each newly confirmed higher peak at its own observable time. Do
+  // not move the first detection marker backwards or overwrite its geometry.
+  const unique = new Map<string, StructureSignal[]>()
   for (const signal of signals.sort((a, b) => a.detectedAt - b.detectedAt || a.radius - b.radius)) {
     const key = `${signal.outerHigh.index}:${signal.rangeLow.index}`
-    if (!unique.has(key)) unique.set(key, signal)
+    const stages = unique.get(key)
+    if (!stages) unique.set(key, [signal])
+    else if (signal.innerHigh.index > stages.at(-1)!.innerHigh.index && signal.innerHigh.price > stages.at(-1)!.innerHigh.price) stages.push(signal)
   }
   return [...unique.values()]
+}
+
+export function scanStructures(candles: Candle[], radii: readonly number[] = scannerSettings.radii): StructureSignal[] {
+  return scanStructureStages(candles, radii).map(stages => stages[0])
 }

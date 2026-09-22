@@ -1,5 +1,5 @@
 import { describeContinuation } from './continuation'
-import { scanStructures, scannerSettings, type StructureSignal } from './structure-scanner'
+import { scanStructureStages, scannerSettings, type StructureSignal } from './structure-scanner'
 import type { MarketDataset, PatternCase, PatternCriterion } from './types'
 
 const formatPrice = (p: number) => p.toLocaleString('ru-RU', { maximumFractionDigits: 4 })
@@ -66,13 +66,16 @@ export function detectPatterns(dataset: MarketDataset): PatternCase[] {
   for (let i = 0; i < boundaries.length - 1; i++) {
     const start = boundaries[i], end = boundaries[i + 1]
     const chunk = dataset.candles.slice(start, end)
-    const shifted = scanStructures(chunk).map(s => ({
+    const shifted = scanStructureStages(chunk).map(stages => stages.map(s => ({
       ...s, detectedAt: s.detectedAt + start,
       ...Object.fromEntries((['trendStart', 'trendLow', 'outerHigh', 'rangeLow', 'innerHigh'] as const).map(key => [key, { ...s[key], index: s[key].index + start, confirmedAt: s[key].confirmedAt + start }])),
-    })) as StructureSignal[]
+    })) as StructureSignal[])
     // Do not show post-gap outcomes as a continuous continuation, either.
     const segmentDataset = { ...dataset, candles: dataset.candles.slice(0, end) }
-    signals.push(...shifted.map(s => toPatternCase(segmentDataset, s)))
+    signals.push(...shifted.map(stages => {
+      const [first, ...revisions] = stages.map(s => toPatternCase(segmentDataset, s))
+      return { ...first, revisions }
+    }))
   }
   return signals.reverse()
 }

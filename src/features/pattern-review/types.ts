@@ -75,6 +75,8 @@ export interface PatternMockCase {
 }
 
 export interface PatternCase {
+  /** Later confirmed higher inner peaks, each with its own causal snapshot. */
+  revisions?: PatternCase[]
   id: string
   symbol: string
   instrumentName: string
