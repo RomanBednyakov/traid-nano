@@ -137,23 +137,20 @@ beforeEach(() => {
 })
 
 describe('PatternReviewPage', () => {
-  it('reveals only requested future candles and resets on navigation', async () => {
+  it('shows the full continuation by default and still supports candle replay', async () => {
     const user = userEvent.setup()
     renderPage()
     await screen.findByText('AAPL · внутренняя вершина')
-    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:1')
-    expect(screen.queryByText('Макс. падение')).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '+1 свеча' }))
-    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:2')
-    expect(screen.queryByText(/Пробита нижняя граница D/)).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Показать продолжение' }))
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:3')
+    expect(screen.getByText('Макс. падение')).toBeInTheDocument()
     expect(screen.getByText(/Пробита нижняя граница D/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:1')
     await user.click(screen.getByRole('button', { name: '+1 свеча' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:2')
+    expect(screen.queryByText(/Пробита нижняя граница D/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Далее' }))
-    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second · candles:1')
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second · candles:3')
   })
 
   it('shows an honest empty result, not an endless search', async () => {

@@ -133,7 +133,9 @@ export function PatternReviewPage() {
 
   const pattern = patterns[index]
   const replayKey = selectedSlug + ':' + timeframe + ':' + pattern?.id
-  const revealed = replay.key === replayKey ? replay.bars : 0
+  const revealed = replay.key === replayKey
+    ? replay.bars
+    : pattern?.futureCandles.length ?? 0
   const displayPattern = useMemo(() => pattern ? {
     ...pattern, candles: [...pattern.candles, ...pattern.futureCandles.slice(0, revealed)],
   } : undefined, [pattern, revealed])
