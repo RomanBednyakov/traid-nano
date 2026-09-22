@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config'
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: '/traid-nano/',
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

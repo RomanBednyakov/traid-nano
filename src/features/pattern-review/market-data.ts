@@ -4,7 +4,9 @@ import { prepareHistory } from './data-integrity'
 const datasetCache = new Map<string, MarketDataset>()
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(url, { signal })
+  const baseUrl = import.meta.env.BASE_URL
+  const normalizedUrl = url.startsWith('/') ? url.slice(1) : url
+  const response = await fetch(`${baseUrl}${normalizedUrl}`, { signal })
   if (!response.ok) throw new Error(`Не удалось загрузить ${url}: HTTP ${response.status}`)
   return response.json() as Promise<T>
 }
