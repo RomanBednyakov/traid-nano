@@ -135,6 +135,7 @@ export interface PatternCase {
     formationTopDepthPercent: number
   }
   outcome: {
+    state: 'waiting' | 'swept' | 'returned' | 'cancelled' | 'invalidated' | 'target-reached' | 'ambiguous'
     events: Array<{ time: UTCTimestamp; label: string }>
     bars: number
     endTime: UTCTimestamp

@@ -85,8 +85,9 @@ describe('customer reference structure (not a profitability test)', () => {
       }
       const [first] = detectPatterns(dataset(bars)).filter(p => p.structure.indices[2] === c && p.structure.indices[3] === d)
       expect(first.structure.indices[4]).toBe(early)
-      expect(first.revisions?.map(p => p.structure.indices[4])).toEqual([mature])
-      expect(first.revisions?.[0].candles.at(-1)?.time).toBe(first.revisions?.[0].structure.detectedTime)
+      // Diagnostic geometry can develop, but a setup's fixed E must not move.
+      expect(first.revisions).toBeUndefined()
+      expect(first.candles.at(-1)?.time).toBe(first.structure.detectedTime)
     }
   })
 
@@ -97,6 +98,20 @@ describe('customer reference structure (not a profitability test)', () => {
       const stages = scanStructureStages(bars).find(stages => stages[0].outerHigh.index === 60 && stages[0].rangeLow.index === 72)!
       expect(stages).toHaveLength(1)
     }
+  })
+
+  it('does not recycle the same external peak with a lower boundary after cancellation', () => {
+    const bars = candles([...reference, [98,730], [108,755], [115,744]])
+    const fixed = scanStructures(bars, [2]).filter(s => s.outerHigh.index === 60)
+    expect(fixed).toHaveLength(1)
+    expect(fixed[0].rangeLow.index).toBe(72)
+    expect(fixed[0].innerHigh.index).toBe(86)
+    expect(scanStructureStages(bars, [2]).some(stages => stages[0].outerHigh.index === 60 && stages[0].rangeLow.index === 98)).toBe(true)
+    const found = detectPatterns(dataset(bars)).filter(p => p.structure.indices[2] === 60)
+    expect(found).toHaveLength(1)
+    expect(found[0].strictMatch).toBe(false)
+    expect(found[0].criteria.find(c => c.label.includes('боковик'))?.passed).toBe(false)
+    expect(found[0].outcome.state).toBe('cancelled')
   })
 
   it('never exposes an unconfirmed pivot', () => {

@@ -267,6 +267,14 @@ function ChartOverlay({
         label={`FIB 0.236 · ${pattern.fibLevel.toFixed(2)}`}
         dashed
       />
+      <HorizontalLevel
+        top={geometry.innerPeak.y}
+        left={geometry.innerPeak.x}
+        right={geometry.chartRight}
+        color="#fbbf24"
+        label={`E · фиксированный ${pattern.structure.innerPeakPrice.toFixed(2)}`}
+        dashed
+      />
 
       <div
         className="absolute z-30 border-2 border-amber-400 bg-amber-400/[0.07] shadow-[inset_0_0_28px_rgba(251,191,36,0.05)]"
@@ -278,7 +286,7 @@ function ChartOverlay({
         }}
       >
         <span className="absolute left-1.5 top-1.5 rounded bg-[#071011e6] px-1.5 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-amber-300">
-          формация
+          внутренняя структура
         </span>
       </div>
 
@@ -287,7 +295,7 @@ function ChartOverlay({
         style={{ left: geometry.formationRight }}
       >
         <span className="absolute -left-8 top-0 whitespace-nowrap rounded bg-teal-300 px-2 py-1 font-mono text-[9px] font-bold uppercase tracking-wider text-[#061112]">
-          распознано
+          уровень зафиксирован
         </span>
       </div>
 

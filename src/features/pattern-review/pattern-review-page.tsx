@@ -67,7 +67,6 @@ export function PatternReviewPage() {
   const [patterns, setPatterns] = useState<PatternCase[]>([])
   const [loadedDataset, setLoadedDataset] = useState<MarketDataset | null>(null)
   const [index, setIndex] = useState(0)
-  const [stageSelection, setStageSelection] = useState({ key: '', index: 0 })
   const [replay, setReplay] = useState({ key: '', bars: 0 })
   const [showAnnotations, setShowAnnotations] = useState(true)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
@@ -118,7 +117,6 @@ export function PatternReviewPage() {
   const move = useCallback((direction: number) => {
     if (!patterns.length) return
     setIndex((value) => (value + direction + patterns.length) % patterns.length)
-    setStageSelection({ key: '', index: 0 })
     setReplay({ key: '', bars: 0 })
   }, [patterns.length])
 
@@ -133,11 +131,8 @@ export function PatternReviewPage() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [move])
 
-  const firstPattern = patterns[index]
-  const stages = useMemo(() => firstPattern ? [firstPattern, ...(firstPattern.revisions ?? [])] : [], [firstPattern])
-  const caseKey = selectedSlug + ':' + timeframe + ':' + firstPattern?.id
-  const stageIndex = stageSelection.key === caseKey ? Math.min(stageSelection.index, stages.length - 1) : stages.length - 1
-  const pattern = stages[stageIndex]
+  const pattern = patterns[index]
+  const caseKey = selectedSlug + ':' + timeframe + ':' + pattern?.id
   const replayKey = caseKey + ':' + pattern?.structure.detectedTime
   const revealed = replay.key === replayKey
     ? replay.bars
@@ -228,7 +223,7 @@ export function PatternReviewPage() {
               Проверено: <strong className="font-medium text-white">{loadedDataset?.candles.length.toLocaleString('ru-RU') ?? '—'} свечей</strong>
             </span>
             <span className="rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-2 text-xs text-teal-200">
-              {status === 'ready' ? <><strong>{patterns.length}</strong> формаций</> : status === 'empty' ? '0 формаций' : status === 'error' ? 'Ошибка загрузки' : 'Ищем формации…'}
+              {status === 'ready' ? <><strong>{patterns.length}</strong> кандидатов</> : status === 'empty' ? '0 кандидатов' : status === 'error' ? 'Ошибка загрузки' : 'Ищем формации…'}
             </span>
           </div>
         </section>
@@ -275,16 +270,9 @@ export function PatternReviewPage() {
                   {showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}
                 </Button>
               </div>
-              {stages.length > 1 && <div className="border-b border-[#203032] px-5 py-3 text-xs text-[#9badaa]">
-                <div className="flex flex-wrap items-center gap-3">
-                  <span className="font-medium text-teal-200">Развитие формации · этап {stageIndex + 1} из {stages.length}</span>
-                  <Button variant="outline" size="sm" disabled={stageIndex === 0}
-                    onClick={() => setStageSelection({ key: caseKey, index: stageIndex - 1 })}>Раньше</Button>
-                  <Button variant="outline" size="sm" disabled={stageIndex === stages.length - 1}
-                    onClick={() => setStageSelection({ key: caseKey, index: stageIndex + 1 })}>Позже</Button>
-                </div>
-                <p className="mt-2 leading-5">Первое обнаружение: {firstPattern.eventDate} UTC. Более высокая внутренняя вершина — новый этап той же формации. Метка показывает, когда выбранный этап стал известен.</p>
-              </div>}
+              <div className="border-b border-[#203032] px-5 py-3 text-xs leading-5 text-[#9badaa]">
+                Уровни C, D и E зафиксированы при первом обнаружении. Продолжение не передвигает границы; после отмены эта постановка не возобновляется.
+              </div>
               <PatternChart key={pattern.id} pattern={displayPattern!} showAnnotations={showAnnotations} />
               <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
                 <Button variant="outline" size="sm" disabled={!pattern.futureCandles.length || revealed === pattern.futureCandles.length}
@@ -312,11 +300,11 @@ export function PatternReviewPage() {
                 <div className="flex items-center gap-2">
                   {pattern.strictMatch ? <CheckCircle2 className="size-5 text-teal-300" /> : <AlertTriangle className="size-5 text-amber-300" />}
                   <span className={`font-semibold ${pattern.strictMatch ? 'text-teal-200' : 'text-amber-200'}`}>
-                    {pattern.strictMatch ? 'Формация распознана' : 'Нужно проверить глазами'}
+                    {pattern.strictMatch ? 'Формация распознана' : 'Кандидат; боковик не подтверждён'}
                   </span>
                 </div>
                 <p className="mt-2 text-xs leading-5 text-[#9badaa]">
-                  {pattern.strictMatch ? 'Кандидат по рабочим правилам. Не команда на вход: условие входа ещё не согласовано.' : 'Условия выполнены не полностью.'}
+                  {pattern.strictMatch ? 'Кандидат по рабочим правилам. Не команда на вход: условие входа ещё не согласовано.' : 'Найдены экстремумы, но отдельная боковая фаза ещё не проверена по эталону. Это не подтверждённое вхождение и не команда на вход.'}
                 </p>
               </div>
 

@@ -1,5 +1,5 @@
 import { describeContinuation } from './continuation'
-import { scanStructureStages, scannerSettings, type StructureSignal } from './structure-scanner'
+import { scanStructures, scannerSettings, type StructureSignal } from './structure-scanner'
 import type { MarketDataset, PatternCase, PatternCriterion } from './types'
 
 const formatPrice = (p: number) => p.toLocaleString('ru-RU', { maximumFractionDigits: 4 })
@@ -18,7 +18,7 @@ function toPatternCase(dataset: MarketDataset, s: StructureSignal): PatternCase 
     { label: 'Основной тренд вниз · A → B', detail: 'Связанный участок от вершины к минимуму, предшествующий контртренду.', value: formatPrice(a.price) + ' → ' + formatPrice(b.price), passed: true },
     { label: 'Контртренд вверх · B → C', detail: 'Локальное движение вверх завершилось внешней вершиной C.', value: formatPrice(b.price) + ' → ' + formatPrice(c.price), passed: true },
     { label: 'Основной тренд больше и дольше', detail: 'Сравниваются абсолютное движение цены и число торговых свечей.', value: formatPrice(mainMove) + ' > ' + formatPrice(counterMove) + '; ' + mainBars + ' > ' + counterBars + ' св.', passed: true },
-    { label: 'Боковик · C — D', detail: 'Нижняя граница D возникла после вершины C. Обе границы сохранены к моменту распознавания.', value: formatPrice(c.price) + ' / ' + formatPrice(d.price), passed: true },
+    { label: 'Диапазон C — D; боковик требует проверки', detail: 'Границы сохранены, есть внутренний подъём и разворот. Этого недостаточно для независимого подтверждения боковой фазы по видео.', value: formatPrice(c.price) + ' / ' + formatPrice(d.price), passed: false },
     { label: 'Внутренняя вершина · D → E → вниз', detail: 'После подъёма от D сформировалась вершина E. Подтверждение заняло ' + (s.detectedAt - e.index) + ' св. справа; они доступны в момент распознавания.', value: formatPrice(e.price), passed: true },
     { label: 'Fibonacci 0,236 от верхней границы', detail: 'Рабочая трактовка эталонов: E ≤ C − 0,236 × (C − D). Без допуска выше линии.', value: formatPrice(e.price) + ' ≤ ' + formatPrice(s.fibLevel), passed: true },
   ]
@@ -31,8 +31,8 @@ function toPatternCase(dataset: MarketDataset, s: StructureSignal): PatternCase 
     title: dataset.symbol + ': внутренняя вершина в боковике',
     subtitle: 'Свеча распознавания: ' + date(signalTime) + ' UTC',
     timeframe: dataset.interval.toUpperCase() as PatternCase['timeframe'],
-    direction: 'short', status: 'valid', statusLabel: 'Формация распознана',
-    strictMatch: true, score: 100, eventDate: date(signalTime),
+    direction: 'short', status: 'warning', statusLabel: 'Кандидат; боковик не подтверждён',
+    strictMatch: false, score: Math.round(criteria.filter(x => x.passed).length / criteria.length * 100), eventDate: date(signalTime),
     candles: candles.slice(Math.max(0, a.index - 8), s.detectedAt + 1),
     futureCandles,
     structure: {
@@ -53,8 +53,8 @@ function toPatternCase(dataset: MarketDataset, s: StructureSignal): PatternCase 
       formationTopDepthPercent: (c.price - e.price) / height * 100,
     },
     outcome: describeContinuation(candles[s.detectedAt], futureCandles, c.price, d.price, e.price),
-    explanation: 'A → B: основной тренд; B → C: контртренд; C → D: границы боковика; D → E: внутренняя вершина. Метка стоит после подтверждения E, пока внешние границы ещё не пробиты.',
-    verdict: 'Распознана структура по рабочей трактовке эталонов. Условие торгового входа согласуется отдельно; последующее падение не является условием отбора.',
+    explanation: 'A → B: основной тренд; B → C: контртренд; C/D: фиксированные внешние границы; D → E: внутренняя вершина. Пара C/D сама по себе не доказывает боковик.',
+    verdict: 'Геометрический кандидат, не подтверждённое совпадение с эталоном. Внутренний уровень фиксируется при первом обнаружении. Вынос, возврат и отмена — отдельные последующие события, не новые уровни.',
     criteria,
   }
 }
@@ -66,16 +66,13 @@ export function detectPatterns(dataset: MarketDataset): PatternCase[] {
   for (let i = 0; i < boundaries.length - 1; i++) {
     const start = boundaries[i], end = boundaries[i + 1]
     const chunk = dataset.candles.slice(start, end)
-    const shifted = scanStructureStages(chunk).map(stages => stages.map(s => ({
+    const shifted = scanStructures(chunk).map(s => ({
       ...s, detectedAt: s.detectedAt + start,
       ...Object.fromEntries((['trendStart', 'trendLow', 'outerHigh', 'rangeLow', 'innerHigh'] as const).map(key => [key, { ...s[key], index: s[key].index + start, confirmedAt: s[key].confirmedAt + start }])),
-    })) as StructureSignal[])
+    })) as StructureSignal[]
     // Do not show post-gap outcomes as a continuous continuation, either.
     const segmentDataset = { ...dataset, candles: dataset.candles.slice(0, end) }
-    signals.push(...shifted.map(stages => {
-      const [first, ...revisions] = stages.map(s => toPatternCase(segmentDataset, s))
-      return { ...first, revisions }
-    }))
+    signals.push(...shifted.map(s => toPatternCase(segmentDataset, s)))
   }
   return signals.reverse()
 }

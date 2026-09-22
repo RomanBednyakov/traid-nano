@@ -13,27 +13,43 @@ export function describeContinuation(
   const max = Math.max(reference, ...candles.map(x => x.high))
   const last = candles.at(-1) ?? referenceBar
   const events: PatternCase['outcome']['events'] = []
-  let swept = false, returned = false, lowerBroken = false, upperBroken = false
+  let state: PatternCase['outcome']['state'] = 'waiting'
+  const labels: Record<PatternCase['outcome']['state'], string> = {
+    waiting: 'Ожидание выноса фиксированного уровня E',
+    swept: 'Уровень E вынесен; возврат ещё не наблюдался',
+    returned: 'После выноса есть закрытие ниже E — не подтверждение сделки',
+    cancelled: 'Постановка отменена: нижняя граница достигнута до возврата',
+    invalidated: 'Постановка завершена: внешняя вершина C пробита',
+    'target-reached': 'Нижняя граница достигнута после наблюдаемого возврата',
+    ambiguous: 'Порядок событий внутри свечи неоднозначен',
+  }
   for (const bar of candles) {
-    if (bar.high > upper && bar.low < lower) {
-      events.push({ time: bar.time, label: 'Обе внешние границы пересечены: порядок внутри свечи неизвестен' })
+    if (bar.high > upper && bar.low <= lower) {
+      state = 'ambiguous'
+      events.push({ time: bar.time, label: 'Обе внешние границы достигнуты: порядок внутри свечи неизвестен; постановка завершена' })
       break
     }
-    if (!swept && bar.high > inner) {
-      swept = true
+    if (bar.high > upper) {
+      state = 'invalidated'
+      events.push({ time: bar.time, label: 'Пробита внешняя верхняя граница C; постановка завершена' })
+      break
+    }
+    // A touch already consumes the lower target. Never resurrect this setup on
+    // subsequent bars. OHLC cannot resolve a sweep/return and target in one bar.
+    if (bar.low <= lower) {
+      if (state === 'returned') state = 'target-reached'
+      else if (bar.high > inner || (state === 'swept' && bar.close < inner)) state = 'ambiguous'
+      else state = 'cancelled'
+      events.push({ time: bar.time, label: labels[state] })
+      break
+    }
+    if (state === 'waiting' && bar.high > inner) {
+      state = 'swept'
       events.push({ time: bar.time, label: 'Вынос внутренней вершины E' })
     }
-    if (swept && !returned && bar.close < inner) {
-      returned = true
+    if (state === 'swept' && bar.close < inner) {
+      state = 'returned'
       events.push({ time: bar.time, label: 'Закрытие обратно ниже E' })
-    }
-    if (!upperBroken && bar.high > upper) {
-      upperBroken = true
-      events.push({ time: bar.time, label: 'Пробита внешняя верхняя граница C' })
-    }
-    if (!lowerBroken && bar.low < lower) {
-      lowerBroken = true
-      events.push({ time: bar.time, label: 'Пробита нижняя граница D' })
     }
   }
   return {
@@ -41,6 +57,6 @@ export function describeContinuation(
     closeChangePercent: (last.close / reference - 1) * 100,
     maxDropPercent: (1 - min / reference) * 100,
     maxRisePercent: (max / reference - 1) * 100,
-    label: candles.length ? 'Движение после распознавания' : 'Продолжение скрыто', events,
+    state, label: candles.length ? labels[state] : 'Продолжение скрыто', events,
   }
 }

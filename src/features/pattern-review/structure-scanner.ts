@@ -163,5 +163,14 @@ export function scanStructureStages(candles: Candle[], radii: readonly number[] 
 }
 
 export function scanStructures(candles: Candle[], radii: readonly number[] = scannerSettings.radii): StructureSignal[] {
-  return scanStructureStages(candles, radii).map(stages => stages[0])
+  // Freeze the first setup under this external peak. A subsequent lower D or
+  // higher E is an outcome, not a replacement setup under the stale same C.
+  // A new independent setup needs a new outer peak. Geometric stages above
+  // remain available for diagnostics only, never as live level revisions.
+  const fixed = new Map<number, StructureSignal>()
+  for (const stages of scanStructureStages(candles, radii)) {
+    const first = stages[0]
+    if (!fixed.has(first.outerHigh.index)) fixed.set(first.outerHigh.index, first)
+  }
+  return [...fixed.values()]
 }
