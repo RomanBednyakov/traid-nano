@@ -163,6 +163,7 @@ export function PatternReviewPage() {
             <nav className="flex items-center gap-1 text-sm" aria-label="Основная навигация">
               <Link to="/market" className="rounded-lg px-3 py-2 text-[#829695] hover:bg-[#122123] hover:text-white">Рынок</Link>
               <Link to="/mocks/pattern-review" className="rounded-lg bg-[#17302f] px-3 py-2 text-teal-200">Разбор формаций</Link>
+              <Link to="/mocks/razvorotka" className="rounded-lg px-3 py-2 text-[#829695] hover:bg-[#122123] hover:text-white">Разворотка</Link>
             </nav>
           </div>
         </div>

@@ -102,6 +102,7 @@ export function MarketTerminalPage() {
             <nav className="hidden items-center gap-1 text-sm sm:flex" aria-label="Основная навигация">
               <Link to="/market" className="rounded-lg bg-[#17302f] px-3 py-2 text-teal-200">Рынок</Link>
               <Link to="/mocks/pattern-review" className="rounded-lg px-3 py-2 text-[#829695] transition hover:bg-[#122123] hover:text-white">Разбор формаций</Link>
+              <Link to="/mocks/razvorotka" className="rounded-lg px-3 py-2 text-[#829695] transition hover:bg-[#122123] hover:text-white">Разворотка</Link>
             </nav>
           </div>
           <div className="flex items-center gap-2 text-xs text-[#829695]">
