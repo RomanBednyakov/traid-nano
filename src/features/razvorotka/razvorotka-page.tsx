@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Database, Eye, EyeOff, LineChart, LoaderCircle } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
@@ -16,17 +16,20 @@ const categoryLabels: Record<MarketCategory, string> = { stocks: 'Акции', g
 const formatTime = (time: number) => new Date(time * 1000).toLocaleString('ru-RU', { timeZone: 'UTC' })
 const formatPrice = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value < 10 ? 5 : 3 })
 const formatPeriod = (value?: string) => value ? new Date(value).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'
+const plural = (count: number, one: string, few: string, many: string) => count % 100 >= 11 && count % 100 <= 14 ? many : count % 10 === 1 ? one : count % 10 >= 2 && count % 10 <= 4 ? few : many
 
 export function RazvorotkaPage() {
   const [catalog, setCatalog] = useState<MarketCatalog | null>(null)
-  const [selectedSlug, setSelectedSlug] = useState('aapl')
-  const [timeframe, setTimeframe] = useState<MarketTimeframe>('1h')
+  const [selectedSlug, setSelectedSlug] = useState('all')
+  const [timeframe, setTimeframe] = useState<MarketTimeframe | 'all'>('all')
   const [patterns, setPatterns] = useState<RazvorotkaCase[]>([])
   const [loadedDataset, setLoadedDataset] = useState<MarketDataset | null>(null)
+  const [processed, setProcessed] = useState(0)
   const [index, setIndex] = useState(0)
   const [replay, setReplay] = useState<{ key: string; bars: number } | null>(null)
   const [showAnnotations, setShowAnnotations] = useState(true)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
+  const casesCache = useRef(new Map<string, RazvorotkaCase[]>())
 
   useEffect(() => {
     const controller = new AbortController()
@@ -34,42 +37,62 @@ export function RazvorotkaPage() {
       .then(next => {
         if (controller.signal.aborted) return
         setCatalog(next)
-        setSelectedSlug(current => next.instruments.some(item => item.slug === current) ? current : next.instruments[0]?.slug ?? '')
+        setSelectedSlug(current => current === 'all' || next.instruments.some(item => item.slug === current) ? current : 'all')
         setStatus('loading')
       })
       .catch(() => { if (!controller.signal.aborted) setStatus('error') })
     return () => controller.abort()
   }, [])
 
-  const selectedInstrument = useMemo(() => catalog?.instruments.find(item => item.slug === selectedSlug), [catalog, selectedSlug])
-  const selectedDataset = selectedInstrument?.datasets[timeframe]
+  const selectedInstruments = useMemo(() => catalog?.instruments.filter(item => selectedSlug === 'all' || item.slug === selectedSlug) ?? [], [catalog, selectedSlug])
+  const selectedTimeframes: MarketTimeframe[] = timeframe === 'all' ? ['1h', '4h'] : [timeframe]
+  const datasetDates = selectedInstruments.flatMap(item => selectedTimeframes.map(frame => item.datasets[frame]))
+  const periodStart = datasetDates.map(item => item.startDate).sort()[0]
+  const periodEnd = datasetDates.map(item => item.endDate).sort().at(-1)
+  const hourlyCount = patterns.filter(item => item.timeframe === '1h').length
+  const fourHourCount = patterns.length - hourlyCount
 
   const resetForSelection = () => {
     setStatus('loading')
     setPatterns([])
     setLoadedDataset(null)
+    setProcessed(0)
     setIndex(0)
     setReplay(null)
   }
 
   useEffect(() => {
-    if (!selectedInstrument) return
+    if (!catalog || !selectedInstruments.length) return
     const controller = new AbortController()
-    loadMarketDataset(selectedInstrument.datasets['1h'].file, controller.signal)
-      .then(hourly => {
+    const scan = async () => {
+      const hourlyDatasets = await Promise.all(selectedInstruments.map(item => loadMarketDataset(item.datasets['1h'].file, controller.signal)))
+      const matches: RazvorotkaCase[] = []
+      for (const [position, hourly] of hourlyDatasets.entries()) {
         if (controller.signal.aborted) return
-        const fourHour = prepareHistory(hourly, '4h')
-        const dataset = timeframe === '1h' ? hourly : fourHour
-        const higher = timeframe === '1h' ? fourHourContext(fourHour) : dailyContext(hourly)
-        const matches = detectRazvorotka(dataset, higher)
-        if (controller.signal.aborted) return
-        setLoadedDataset(dataset)
-        setPatterns(matches)
-        setStatus(matches.length ? 'ready' : 'empty')
-      })
-      .catch(() => { if (!controller.signal.aborted) setStatus('error') })
+        const frames = timeframe === 'all' ? ['1h', '4h'] as const : [timeframe]
+        const uncached = frames.filter(frame => !casesCache.current.has(`${hourly.slug}:${frame}`))
+        const fourHour = uncached.length || (selectedInstruments.length === 1 && timeframe === '4h') ? prepareHistory(hourly, '4h') : null
+        if (uncached.length) {
+          for (const frame of uncached) {
+            const dataset = frame === '1h' ? hourly : fourHour!
+            const higher = frame === '1h' ? fourHourContext(fourHour!) : dailyContext(hourly)
+            casesCache.current.set(`${hourly.slug}:${frame}`, detectRazvorotka(dataset, higher))
+          }
+        }
+        for (const frame of frames) matches.push(...(casesCache.current.get(`${hourly.slug}:${frame}`) ?? []))
+        if (selectedInstruments.length === 1 && timeframe !== 'all') setLoadedDataset(timeframe === '1h' ? hourly : fourHour)
+        setProcessed(position + 1)
+        // Give the browser a chance to paint progress during the full archive scan.
+        await new Promise<void>(resolve => window.setTimeout(resolve, 0))
+      }
+      if (controller.signal.aborted) return
+      matches.sort((left, right) => right.detectedTime - left.detectedTime || left.id.localeCompare(right.id))
+      setPatterns(matches)
+      setStatus(matches.length ? 'ready' : 'empty')
+    }
+    void scan().catch(() => { if (!controller.signal.aborted) setStatus('error') })
     return () => controller.abort()
-  }, [selectedInstrument, timeframe])
+  }, [catalog, selectedInstruments, timeframe])
 
   const move = useCallback((direction: number) => {
     setIndex(current => patterns.length ? (current + direction + patterns.length) % patterns.length : 0)
@@ -112,7 +135,7 @@ export function RazvorotkaPage() {
           <label className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.15em] text-[#607675]">Торговый инструмент</label>
           <Select value={selectedSlug} onValueChange={slug => { resetForSelection(); setSelectedSlug(slug) }} disabled={!catalog}>
             <SelectTrigger aria-label="Торговый инструмент" className="h-11 w-full border-[#2b4042] bg-[#091315] text-white"><SelectValue placeholder="Выбрать инструмент" /></SelectTrigger>
-            <SelectContent>{categoryOrder.map(category => {
+            <SelectContent><SelectItem value="all">Все инструменты · {catalog?.instruments.length ?? 0}</SelectItem>{categoryOrder.map(category => {
               const instruments = catalog?.instruments.filter(item => item.category === category) ?? []
               return instruments.length ? <SelectGroup key={category}><SelectLabel>{categoryLabels[category]}</SelectLabel>{instruments.map(item => <SelectItem key={item.slug} value={item.slug}>{item.symbol} · {item.name}</SelectItem>)}</SelectGroup> : null
             })}</SelectContent>
@@ -120,17 +143,17 @@ export function RazvorotkaPage() {
         </div>
         <div>
           <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.15em] text-[#607675]">Таймфрейм</div>
-          <div className="grid grid-cols-2 rounded-xl border border-[#2b4042] bg-[#091315] p-1">
-            {(['1h', '4h'] as const).map(item => <button key={item} type="button" onClick={() => { if (item !== timeframe) { resetForSelection(); setTimeframe(item) } }} className={`rounded-lg px-5 py-2 text-sm font-semibold ${timeframe === item ? 'bg-teal-400 text-[#061112]' : 'text-[#829695] hover:text-white'}`}>{item === '1h' ? '1 час' : '4 часа'}</button>)}
+          <div className="grid grid-cols-3 rounded-xl border border-[#2b4042] bg-[#091315] p-1">
+            {(['all', '1h', '4h'] as const).map(item => <button key={item} type="button" onClick={() => { if (item !== timeframe) { resetForSelection(); setTimeframe(item) } }} className={`rounded-lg px-4 py-2 text-sm font-semibold ${timeframe === item ? 'bg-teal-400 text-[#061112]' : 'text-[#829695] hover:text-white'}`}>{item === 'all' ? 'Оба' : item === '1h' ? '1 час' : '4 часа'}</button>)}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-          <span className="rounded-lg border border-[#2b4042] bg-[#091315] px-3 py-2 text-xs text-[#829695]">История: <strong className="font-medium text-white">{formatPeriod(selectedDataset?.startDate)} — {formatPeriod(selectedDataset?.endDate)}</strong></span>
-          <span className="rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-2 text-xs text-teal-200" aria-live="polite">{status === 'ready' ? <><strong>{patterns.length}</strong> кандидатов</> : status === 'empty' ? '0 кандидатов' : status === 'error' ? 'Ошибка загрузки' : 'Ищем формации…'}</span>
+          <span className="rounded-lg border border-[#2b4042] bg-[#091315] px-3 py-2 text-xs text-[#829695]">История: <strong className="font-medium text-white">{formatPeriod(periodStart)} — {formatPeriod(periodEnd)}</strong></span>
+          <span className="rounded-lg border border-teal-400/20 bg-teal-400/10 px-3 py-2 text-xs text-teal-200" aria-live="polite">{status === 'ready' ? <><strong>{patterns.length}</strong> {plural(patterns.length, 'кандидат', 'кандидата', 'кандидатов')}</> : status === 'empty' ? '0 кандидатов' : status === 'error' ? 'Ошибка загрузки' : status === 'loading' ? `Ищем формации… ${processed}/${selectedInstruments.length}` : 'Загружаем каталог…'}</span>
         </div>
       </section>
 
-      {loadedDataset?.quality && <details className="mb-4 rounded-xl border border-[#203032] px-4 py-3 text-xs text-[#9badaa]"><summary className="cursor-pointer">О данных · {loadedDataset.quality.aggregation}</summary><p className="mt-2 leading-5">Используются закрытые свечи. Поиск не соединяет участки через найденные пропуски. Объёмы в сохранённой истории отсутствуют: исключение для 6–11 свечей и объёмные факторы не проверяются.</p></details>}
+      {(status === 'ready' || status === 'empty') && <div className="mb-4 rounded-xl border border-[#203032] px-4 py-3 text-xs text-[#9badaa]"><p>Выборка: {selectedInstruments.length} {plural(selectedInstruments.length, 'инструмент', 'инструмента', 'инструментов')} · 1H: {hourlyCount} · 4H: {fourHourCount}. Это кандидаты для просмотра, а не подтверждённые сделки.</p><details className="mt-2"><summary className="cursor-pointer">О данных{loadedDataset?.quality ? ` · ${loadedDataset.quality.aggregation}` : ''}</summary><p className="mt-2 leading-5">Используются закрытые свечи. Поиск не соединяет участки через найденные пропуски. Объёмы в сохранённой истории отсутствуют: исключение для 6–11 свечей и объёмные факторы не проверяются.</p></details></div>}
 
       {status !== 'ready' || !pattern ? <div className="flex min-h-[560px] items-center justify-center rounded-2xl border border-[#203032] bg-[#0b1517] p-6 text-center text-[#829695]"><div>
         {status === 'error' ? <AlertTriangle className="mx-auto mb-4 size-7 text-rose-400" /> : status === 'empty' ? <LineChart className="mx-auto mb-4 size-7" /> : <LoaderCircle className="mx-auto mb-4 size-7 animate-spin text-teal-400" />}
@@ -142,7 +165,7 @@ export function RazvorotkaPage() {
             <div className="flex flex-wrap items-center gap-2">
               <Select value={String(index)} onValueChange={value => { setIndex(Number(value)); setReplay(null) }}>
                 <SelectTrigger aria-label="Найденный случай" className="h-9 min-w-52 border-[#2b4042] bg-[#091315] text-xs text-white"><SelectValue /></SelectTrigger>
-                <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.direction} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
+                <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.timeframe.toUpperCase()} {item.direction} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => setShowAnnotations(value => !value)} className="border-[#2b4042] bg-transparent">{showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}</Button>
             </div>

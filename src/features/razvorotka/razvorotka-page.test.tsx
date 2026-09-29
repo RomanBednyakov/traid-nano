@@ -18,6 +18,10 @@ const catalog = { instruments: [{ symbol: 'AAPL', slug: 'aapl', name: 'Apple', c
   '1h': { file: '/data/market/aapl-1h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
   '4h': { file: '/data/market/aapl-4h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
 } }] }
+const twoInstrumentCatalog = { ...catalog, instruments: [...catalog.instruments, { symbol: 'MSFT', slug: 'msft', name: 'Microsoft', category: 'stocks', datasets: {
+  '1h': { file: '/data/market/msft-1h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
+  '4h': { file: '/data/market/msft-4h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
+} }] }
 const candle = (time: number) => ({ time, open: 100, high: 103, low: 98, close: 101 })
 const hourly = { slug: 'aapl', interval: '1h', candles: [candle(1)], quality: { aggregation: 'test', breakBeforeTimes: [] } }
 const caseData = (id: string) => ({
@@ -37,10 +41,10 @@ function renderPage() { return render(<MemoryRouter><TooltipProvider><Razvorotka
 beforeEach(() => {
   mocks.loadMarketCatalog.mockReset().mockResolvedValue(catalog)
   mocks.loadMarketDataset.mockReset().mockResolvedValue(hourly)
-  mocks.prepareHistory.mockReset().mockReturnValue({ ...hourly, interval: '4h' })
+  mocks.prepareHistory.mockReset().mockImplementation(dataset => ({ ...dataset, interval: '4h' }))
   mocks.dailyContext.mockReset().mockReturnValue([])
   mocks.fourHourContext.mockReset().mockReturnValue([])
-  mocks.detectRazvorotka.mockReset().mockReturnValue([caseData('first'), caseData('second')])
+  mocks.detectRazvorotka.mockReset().mockImplementation(dataset => dataset.interval === '1h' ? [caseData('first'), caseData('second')] : [])
 })
 
 describe('Разворотка page', () => {
@@ -65,5 +69,22 @@ describe('Разворотка page', () => {
     fireEvent.click(screen.getByRole('button', { name: '4 часа' }))
     await waitFor(() => expect(mocks.prepareHistory).toHaveBeenCalledTimes(2))
     expect(screen.getByText('0 кандидатов')).toBeInTheDocument()
+  })
+
+  it('combines instruments and timeframes, then filters the cached cases', async () => {
+    mocks.loadMarketCatalog.mockResolvedValue(twoInstrumentCatalog)
+    mocks.loadMarketDataset.mockImplementation(file => Promise.resolve({ ...hourly, slug: file.includes('msft') ? 'msft' : 'aapl' }))
+    mocks.detectRazvorotka.mockImplementation(dataset => [{
+      ...caseData(`${dataset.slug}-${dataset.interval}`),
+      symbol: dataset.slug === 'msft' ? 'MSFT' : 'AAPL',
+      timeframe: dataset.interval,
+    }])
+    renderPage()
+    expect(await screen.findByText(/Выборка: 2 инструмента · 1H: 2 · 4H: 2/)).toBeInTheDocument()
+    expect(screen.getByText((_, element) => element?.getAttribute('aria-live') === 'polite' && element.textContent?.trim() === '4 кандидата')).toBeInTheDocument()
+    expect(mocks.detectRazvorotka).toHaveBeenCalledTimes(4)
+    fireEvent.click(screen.getByRole('button', { name: '4 часа' }))
+    await waitFor(() => expect(screen.getByText((_, element) => element?.getAttribute('aria-live') === 'polite' && element.textContent?.trim() === '2 кандидата')).toBeInTheDocument())
+    expect(mocks.detectRazvorotka).toHaveBeenCalledTimes(4)
   })
 })

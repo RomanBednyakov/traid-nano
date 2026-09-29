@@ -19,3 +19,7 @@ The 1H page uses prepared 4H candles for higher-timeframe context. The 4H page d
 - Invalid examples show a higher-timeframe range or an uptrend before an attempted short. Confirmed opposing context is rejected; inconclusive context is surfaced as uncertainty rather than claimed valid.
 
 The scanner is a deterministic research tool over the available historical snapshots. Accuracy against the customer's screenshots cannot be measured until each image is paired with instrument, timeframe, and source candle times.
+
+## Reviewing the sample
+
+The page initially combines all nine saved instruments and both timeframes, ordered by the Phase 3 completion time. This exposes 103 candidates in the current snapshot (75 on 1H and 28 on 4H); the old count of two was only AAPL on 4H. Instrument and timeframe filters narrow the same results without changing recognition thresholds. The page labels every result as a candidate because some trend context remains uncertain and later price movement is not a completed trade.
