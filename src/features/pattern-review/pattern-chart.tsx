@@ -13,6 +13,7 @@ import type { PatternCase } from './types'
 interface PatternChartProps {
   pattern: PatternCase
   showAnnotations: boolean
+  focusOnSignal: boolean
 }
 
 interface Point {
@@ -315,7 +316,7 @@ function ChartOverlay({
   )
 }
 
-export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
+export function PatternChart({ pattern, showAnnotations, focusOnSignal }: PatternChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [geometry, setGeometry] = useState<OverlayGeometry | null>(null)
 
@@ -381,6 +382,14 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
     }
 
     chart.timeScale().fitContent()
+    if (focusOnSignal) {
+      const trendStart = pattern.candles.findIndex(candle => candle.time === pattern.trend.startTime)
+      const detectedAt = pattern.candles.findIndex(candle => candle.time === pattern.structure.detectedTime)
+      if (trendStart >= 0 && detectedAt >= 0) chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, trendStart - 24),
+        to: Math.min(pattern.candles.length + 5, detectedAt + (pattern.timeframe === '1H' ? 80 : 40) + 5),
+      })
+    }
     const frame = requestAnimationFrame(updateOverlay)
     chart.timeScale().subscribeVisibleLogicalRangeChange(updateOverlay)
 
@@ -401,7 +410,7 @@ export function PatternChart({ pattern, showAnnotations }: PatternChartProps) {
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(updateOverlay)
       chart.remove()
     }
-  }, [pattern])
+  }, [pattern, focusOnSignal])
 
   return (
     <div

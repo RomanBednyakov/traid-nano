@@ -59,6 +59,21 @@ const formatPeriod = (value?: string) => value
       timeZone: 'UTC',
     })
   : '—'
+const candleWord = (count: number) => count % 100 >= 11 && count % 100 <= 14 ? 'свечей' : count % 10 === 1 ? 'свеча' : count % 10 >= 2 && count % 10 <= 4 ? 'свечи' : 'свечей'
+
+function visibleCaseHistory(pattern: PatternCase | undefined, dataset: MarketDataset | null) {
+  if (!pattern) return { before: [] as PatternCase['candles'], after: [] as PatternCase['futureCandles'] }
+  if (!dataset?.candles.length) return { before: pattern.candles, after: pattern.futureCandles }
+  const detectedAt = dataset.candles.findIndex(candle => candle.time === pattern.structure.detectedTime)
+  if (detectedAt < 0) return { before: pattern.candles, after: pattern.futureCandles }
+  const breaks = new Set(dataset.quality?.breakBeforeTimes ?? [])
+  let start = 0, end = dataset.candles.length
+  for (let i = 1; i <= detectedAt; i++) if (breaks.has(dataset.candles[i].time)) start = i
+  for (let i = detectedAt + 1; i < dataset.candles.length; i++) {
+    if (breaks.has(dataset.candles[i].time)) { end = i; break }
+  }
+  return { before: dataset.candles.slice(start, detectedAt + 1), after: dataset.candles.slice(detectedAt + 1, end) }
+}
 
 export function PatternReviewPage() {
   const [catalog, setCatalog] = useState<MarketCatalog | null>(null)
@@ -69,6 +84,7 @@ export function PatternReviewPage() {
   const [index, setIndex] = useState(0)
   const [replay, setReplay] = useState({ key: '', bars: 0 })
   const [showAnnotations, setShowAnnotations] = useState(true)
+  const [focusOnSignal, setFocusOnSignal] = useState(false)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
 
   useEffect(() => {
@@ -98,6 +114,7 @@ export function PatternReviewPage() {
     setPatterns([])
     setLoadedDataset(null)
     setIndex(0)
+    setFocusOnSignal(false)
 
     loadMarketDataset(selectedDataset.file, controller.signal)
       .then((dataset) => {
@@ -118,6 +135,7 @@ export function PatternReviewPage() {
     if (!patterns.length) return
     setIndex((value) => (value + direction + patterns.length) % patterns.length)
     setReplay({ key: '', bars: 0 })
+    setFocusOnSignal(false)
   }, [patterns.length])
 
   useEffect(() => {
@@ -134,16 +152,17 @@ export function PatternReviewPage() {
   const pattern = patterns[index]
   const caseKey = selectedSlug + ':' + timeframe + ':' + pattern?.id
   const replayKey = caseKey + ':' + pattern?.structure.detectedTime
+  const caseHistory = useMemo(() => visibleCaseHistory(pattern, loadedDataset), [pattern, loadedDataset])
   const revealed = replay.key === replayKey
     ? replay.bars
-    : pattern?.futureCandles.length ?? 0
+    : caseHistory.after.length
   const displayPattern = useMemo(() => pattern ? {
-    ...pattern, candles: [...pattern.candles, ...pattern.futureCandles.slice(0, revealed)],
-  } : undefined, [pattern, revealed])
+    ...pattern, candles: [...caseHistory.before, ...caseHistory.after.slice(0, revealed)],
+  } : undefined, [pattern, caseHistory, revealed])
   const visibleOutcome = useMemo(() => pattern ? describeContinuation(
-    pattern.candles.at(-1)!, pattern.futureCandles.slice(0, revealed),
+    pattern.candles.at(-1)!, caseHistory.after.slice(0, revealed),
     pattern.range.high, pattern.range.low, pattern.structure.innerPeakPrice,
-  ) : undefined, [pattern, revealed])
+  ) : undefined, [pattern, caseHistory, revealed])
   const passed = useMemo(
     () => pattern?.criteria.filter((item) => item.passed).length ?? 0,
     [pattern],
@@ -260,30 +279,31 @@ export function PatternReviewPage() {
                   </div>
                   <h1 className="text-xl font-semibold text-white">{pattern.symbol} · внутренняя вершина</h1>
                   <p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {pattern.eventDate} UTC</p>
+                  <p className="mt-1 text-xs text-[#829695]">До сигнала: {Math.max(0, caseHistory.before.length - 1)} {candleWord(Math.max(0, caseHistory.before.length - 1))} · после: {revealed} из {caseHistory.after.length} {candleWord(caseHistory.after.length)}</p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAnnotations((value) => !value)}
-                  className="border-[#2b4042] bg-transparent"
-                >
-                  {showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  {showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="outline" size="sm" onClick={() => setShowAnnotations((value) => !value)} className="border-[#2b4042] bg-transparent">
+                    {showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                    {showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setFocusOnSignal(value => !value)} className="border-[#2b4042] bg-transparent">
+                    {focusOnSignal ? 'Показать всю историю' : 'Приблизить сигнал'}
+                  </Button>
+                </div>
               </div>
               <div className="border-b border-[#203032] px-5 py-3 text-xs leading-5 text-[#9badaa]">
-                Уровни C, D и E зафиксированы при первом обнаружении. Продолжение не передвигает границы; после отмены эта постановка не возобновляется.
+                Обзор показывает весь доступный участок до и после сигнала; кнопка «Приблизить сигнал» раскрывает разметку. Уровни C, D и E зафиксированы при первом обнаружении, продолжение не передвигает границы.
               </div>
-              <PatternChart key={pattern.id} pattern={displayPattern!} showAnnotations={showAnnotations} />
+              <PatternChart key={pattern.id} pattern={displayPattern!} showAnnotations={showAnnotations} focusOnSignal={focusOnSignal} />
               <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
-                <Button variant="outline" size="sm" disabled={!pattern.futureCandles.length || revealed === pattern.futureCandles.length}
-                  onClick={() => setReplay({ key: replayKey, bars: pattern.futureCandles.length })}>Показать продолжение</Button>
-                <Button variant="outline" size="sm" disabled={revealed >= pattern.futureCandles.length}
-                  onClick={() => setReplay({ key: replayKey, bars: revealed + 1 })}>+1 свеча</Button>
+                <Button variant="outline" size="sm" disabled={!caseHistory.after.length || (revealed === caseHistory.after.length && !focusOnSignal)}
+                  onClick={() => { setReplay({ key: replayKey, bars: caseHistory.after.length }); setFocusOnSignal(false) }}>Вся дальнейшая история</Button>
+                <Button variant="outline" size="sm" disabled={revealed >= caseHistory.after.length}
+                  onClick={() => { setReplay({ key: replayKey, bars: revealed + 1 }); setFocusOnSignal(true) }}>+1 свеча</Button>
                 <Button variant="ghost" size="sm" disabled={!revealed}
-                  onClick={() => setReplay({ key: replayKey, bars: 0 })}>Скрыть продолжение</Button>
+                  onClick={() => { setReplay({ key: replayKey, bars: 0 }); setFocusOnSignal(true) }}>Скрыть продолжение</Button>
                 <span className="text-xs text-[#829695]" aria-live="polite">
-                  {pattern.futureCandles.length ? `Открыто ${revealed} из ${pattern.futureCandles.length} следующих свечей` : 'Данных о продолжении нет'}
+                  {caseHistory.after.length ? `Открыто ${revealed} из ${caseHistory.after.length} следующих свечей` : 'Данных о продолжении нет'}
                 </span>
               </div>
               <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[#203032] p-4 text-xs text-[#829695]">

@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/features/pattern-review/market-data', () => ({ loadMarketCatalog: mocks.loadMarketCatalog, loadMarketDataset: mocks.loadMarketDataset }))
 vi.mock('@/features/pattern-review/data-integrity', () => ({ prepareHistory: mocks.prepareHistory }))
 vi.mock('./razvorotka-detector', () => ({ detectRazvorotka: mocks.detectRazvorotka, dailyContext: mocks.dailyContext, fourHourContext: mocks.fourHourContext }))
-vi.mock('./razvorotka-chart', () => ({ RazvorotkaChart: ({ pattern, revealed, showAnnotations, focusOnSignal }: { pattern: { id: string }; revealed: number; showAnnotations: boolean; focusOnSignal: boolean }) => <div data-testid="razvorotka-chart">{pattern.id} · {revealed} · {showAnnotations ? 'on' : 'off'} · {focusOnSignal ? 'focus' : 'overview'}</div> }))
+vi.mock('./razvorotka-chart', () => ({ RazvorotkaChart: ({ pattern, revealed, showAnnotations, focusOnSignal }: { pattern: { id: string; candles: unknown[] }; revealed: number; showAnnotations: boolean; focusOnSignal: boolean }) => <div data-testid="razvorotka-chart">{pattern.id} · {revealed} · {showAnnotations ? 'on' : 'off'} · {focusOnSignal ? 'focus' : 'overview'} · before:{pattern.candles.length}</div> }))
 
 const catalog = { instruments: [{ symbol: 'AAPL', slug: 'aapl', name: 'Apple', category: 'stocks', datasets: {
   '1h': { file: '/data/market/aapl-1h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
@@ -23,7 +23,7 @@ const twoInstrumentCatalog = { ...catalog, instruments: [...catalog.instruments,
   '4h': { file: '/data/market/msft-4h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
 } }] }
 const candle = (time: number) => ({ time, open: 100, high: 103, low: 98, close: 101 })
-const hourly = { slug: 'aapl', interval: '1h', candles: [candle(1)], quality: { aggregation: 'test', breakBeforeTimes: [] } }
+const hourly = { slug: 'aapl', symbol: 'AAPL', interval: '1h', candles: [candle(1)], quality: { aggregation: 'test', breakBeforeTimes: [] } }
 const caseData = (id: string) => ({
   id, symbol: 'AAPL', timeframe: '1h', direction: 'short', detectedTime: 3,
   source: { start: 1, end: 2, high: 110, low: 100 },
@@ -62,16 +62,15 @@ describe('Разворотка page', () => {
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off')
-    fireEvent.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off · focus')
-    fireEvent.click(screen.getByRole('button', { name: 'Показать весь график' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Показать всю историю' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off · overview')
     fireEvent.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 2 · off · overview')
   })
 
-  it('previews 80 hourly or 40 four-hour bars and can reveal the entire saved continuation', async () => {
+  it('shows every saved future bar by default and can focus on 80 hourly or 40 four-hour bars', async () => {
     mocks.detectRazvorotka.mockImplementation(dataset => [{
       ...caseData(`${dataset.interval}-case`),
       timeframe: dataset.interval,
@@ -79,23 +78,32 @@ describe('Разворотка page', () => {
     }])
     renderPage()
     fireEvent.click(screen.getByRole('button', { name: '1 час' }))
-    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 80 · on'))
-    expect(screen.getByText('Открыто 80 из 105 следующих свечей')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 105 · on')
+    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 105 · on · overview'))
     expect(screen.getByText('Открыто 105 из 105 следующих свечей')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Ближайшие 80 свечей' }))
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 80 · on')
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 80 · on · focus')
+    fireEvent.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 105 · on · overview')
 
     fireEvent.click(screen.getByRole('button', { name: '4 часа' }))
-    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 40 · on'))
-    expect(screen.getByText('Открыто 40 из 55 следующих свечей')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 55 · on')
+    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 55 · on · overview'))
+    expect(screen.getByText('Открыто 55 из 55 следующих свечей')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ближайшие 40 свечей' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 40 · on · focus')
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 0 · on')
     fireEvent.click(screen.getByRole('button', { name: '+1 свеча' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 1 · on')
+  })
+
+  it('shows all earlier candles in the same continuous segment', async () => {
+    mocks.loadMarketDataset.mockResolvedValue({ ...hourly, candles: Array.from({ length: 8 }, (_, i) => candle(i + 1)), quality: { aggregation: 'test', breakBeforeTimes: [2] } })
+    mocks.detectRazvorotka.mockImplementation(dataset => dataset.interval === '1h' ? [{
+      ...caseData('with-history'), detectedTime: 5, source: { start: 4, end: 4, high: 110, low: 100 },
+    }] : [])
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('with-history · 2 · on · overview · before:4'))
+    expect(screen.getByText(/Контекст слева: 2 свечи до консолидации/)).toBeInTheDocument()
   })
 
   it('shows an honest empty result and switches timeframe', async () => {

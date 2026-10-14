@@ -27,12 +27,14 @@ vi.mock('./pattern-chart', () => ({
   PatternChart: ({
     pattern,
     showAnnotations,
+    focusOnSignal,
   }: {
     pattern: { id: string; candles: unknown[] }
     showAnnotations: boolean
+    focusOnSignal: boolean
   }) => (
     <div data-testid="pattern-chart">
-      {pattern.id} · candles:{pattern.candles.length} · annotations:{showAnnotations ? 'on' : 'off'}
+      {pattern.id} · candles:{pattern.candles.length} · annotations:{showAnnotations ? 'on' : 'off'} · {focusOnSignal ? 'focus' : 'overview'}
     </div>
   ),
 }))
@@ -166,6 +168,25 @@ describe('PatternReviewPage', () => {
     expect(screen.queryByText('Порядок событий внутри свечи неоднозначен')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Далее' }))
     expect(screen.getByTestId('pattern-chart')).toHaveTextContent('aapl-second · candles:3')
+  })
+
+  it('shows the full continuous segment before and after the signal', async () => {
+    const user = userEvent.setup()
+    const candles = Array.from({ length: 150 }, (_, index) => ({ time: index + 1, open: 90, high: 92, low: 88, close: 90 }))
+    mocks.loadMarketDataset.mockResolvedValue({ slug: 'aapl', candles, quality: {
+      sourceBars: 150, excludedHourlyBars: 0, droppedBuckets: 0,
+      breakBeforeTimes: [121], aggregation: 'test', calendarVerified: true,
+    } })
+    mocks.detectPatterns.mockReturnValue([pattern('full-history', 'Full history')])
+    renderPage()
+    expect(await screen.findByText('До сигнала: 4 свечи · после: 115 из 115 свечей')).toBeInTheDocument()
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('full-history · candles:120 · annotations:on · overview')
+    await user.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('focus')
+    await user.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:5')
+    await user.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
+    expect(screen.getByTestId('pattern-chart')).toHaveTextContent('candles:120 · annotations:on · overview')
   })
 
   it('shows an honest empty result, not an endless search', async () => {

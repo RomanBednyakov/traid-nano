@@ -65,6 +65,36 @@ describe('Разворотка detector', () => {
     expect(longHistory.find(item => item.id === result[0].id)?.futureCandles).toHaveLength(100)
   })
 
+  it('starts Phase 3 after a deep crossing wick and rejects a repeated breakout', () => {
+    const continuous = shortSetup()
+    continuous[39] = bar(39, 107, 108, 105, 109)
+    continuous.push(bar(40, 109, 109.5, 100.5, 101))
+    const result = detectRazvorotka(dataset(continuous), [])
+    expect(result).toHaveLength(1)
+    expect(result[0].breakout.end).toBe(continuous[38].time)
+    expect(result[0].cancellation.start).toBe(continuous[39].time)
+    expect(result[0].detectedTime).toBe(continuous[40].time)
+
+    const repeated = shortSetup()
+    repeated[39] = bar(39, 111, 113, 109, 112)
+    repeated.push(bar(40, 112, 112, 105, 107))
+    repeated.push(bar(41, 107, 108, 100.5, 101))
+    expect(detectRazvorotka(dataset(repeated), [])).toHaveLength(0)
+    const mirrored = repeated.map(c => ({ ...c, open: 300 - c.open, close: 300 - c.close,
+      high: 300 - c.low, low: 300 - c.high }))
+    expect(detectRazvorotka(dataset(mirrored), [])).toHaveLength(0)
+  })
+
+  it('resets an unconfirmed false breakout after a deep return', () => {
+    const candles = shortSetup()
+    candles[36] = bar(36, 110, 112, 102, 103)
+    candles[37] = bar(37, 110, 112, 109, 111)
+    candles[38] = bar(38, 111, 113, 110, 112)
+    candles[39] = bar(39, 112, 112, 105, 107)
+    candles.push(bar(40, 107, 108, 100.5, 101))
+    expect(detectRazvorotka(dataset(candles), [])).toHaveLength(0)
+  })
+
   it('keeps a longer preceding move visible before the source range', () => {
     const leadIn = Array.from({ length: 160 }, (_, i) => {
       const value = 500 - i * 2.12
@@ -183,9 +213,36 @@ describe('Разворотка detector', () => {
   })
 
   it('rejects an opening gap against the false breakout and never joins a data break', () => {
-    const gap = shortSetup().map((c, i) => i >= 36 ? { ...c, time: (c.time + 48 * 3600) as UTCTimestamp } : c)
-    gap[36] = { ...gap[36], open: 103 }
+    const gap = shortSetup()
+    gap[36] = bar(36, 101, 112, 100.5, 111)
+    gap[37] = bar(37, 111, 113, 110, 112)
+    gap[38] = bar(38, 112, 113, 110.5, 112.5)
+    gap[39] = bar(39, 112.5, 112.5, 105, 107)
+    gap.push(bar(40, 107, 108, 100.5, 101))
+    for (let i = 36; i < gap.length; i++) gap[i].time = (gap[i].time + 48 * 3600) as UTCTimestamp
+
+    // A true session gap below the previous low opposes the short breakout.
+    expect(gap[36].open).toBeLessThan(gap[35].low)
     expect(detectRazvorotka(dataset(gap), [])).toHaveLength(0)
+
+    // Opening inside the previous candle's range is a valid, overlapping
+    // session open even if it is below the previous close.
+    const overlapping = gap.map(c => ({ ...c }))
+    overlapping[36] = { ...overlapping[36], open: 103, low: 102.5 }
+    expect(overlapping[36].open).toBeGreaterThan(overlapping[35].low)
+    expect(overlapping[36].open).toBeLessThan(overlapping[35].high)
+    expect(detectRazvorotka(dataset(overlapping), [])).toHaveLength(1)
+
+    // A sub-tick rounding difference is not a meaningful non-overlapping gap.
+    const rounded = gap.map(c => ({ ...c }))
+    rounded[36] = { ...rounded[36], open: 101.995, low: 101.5 }
+    expect(detectRazvorotka(dataset(rounded), [])).toHaveLength(1)
+
+    const mirror = (candles: Candle[]) => candles.map(c => ({ ...c,
+      open: 300 - c.open, close: 300 - c.close, high: 300 - c.low, low: 300 - c.high,
+    }))
+    expect(detectRazvorotka(dataset(mirror(gap)), [])).toHaveLength(0)
+    expect(detectRazvorotka(dataset(mirror(overlapping)), [])).toHaveLength(1)
 
     const broken = dataset(shortSetup())
     broken.quality = { sourceBars: 40, excludedHourlyBars: 0, droppedBuckets: 0, breakBeforeTimes: [broken.candles[37].time], aggregation: 'test', calendarVerified: false }

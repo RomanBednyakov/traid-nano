@@ -12,6 +12,49 @@ function history(slug: string) {
 }
 
 describe('Разворотка on saved market history', () => {
+  it('does not mistake the lower edge of the broader NVDA 4H range for a false breakout', () => {
+    const hourly = history('nvda')
+    const fourHour = prepareHistory(hourly, '4h')
+    const sourceStart = Date.parse('2026-07-08T17:30:00Z') / 1000
+    const breakoutStart = Date.parse('2026-07-27T13:30:00Z') / 1000
+    const sourceIndex = fourHour.candles.findIndex(c => c.time === sourceStart)
+    const breakoutIndex = fourHour.candles.findIndex(c => c.time === breakoutStart)
+    expect(sourceIndex).toBeGreaterThanOrEqual(24)
+    expect(breakoutIndex).toBeGreaterThan(sourceIndex)
+    const outer = fourHour.candles.slice(sourceIndex - 24, breakoutIndex)
+    expect(Math.min(...outer.map(c => c.low))).toBeCloseTo(189.8)
+    expect(Math.max(...outer.map(c => c.high))).toBeCloseTo(214.39)
+
+    const matches = detectRazvorotka(fourHour, dailyContext(hourly))
+    expect(matches.some(item => item.id === 'nvda-4h-long-1785159000')).toBe(false)
+  }, 30000)
+
+  it('does not join the two ETH breakout attempts around 30 December 2024', () => {
+    const hourly = history('eth-usd')
+    const higher = fourHourContext(prepareHistory(hourly, '4h'))
+    const reviewedTime = Date.parse('2024-12-30T14:00:00Z') / 1000
+    const nearby = detectRazvorotka(hourly, higher).filter(item =>
+      item.direction === 'short' && Math.abs(item.detectedTime - reviewedTime) <= 3600)
+    expect(nearby).toHaveLength(0)
+  })
+
+  it('rejects the AAPL long whose false breakout starts after an opposing opening gap', () => {
+    const hourly = history('aapl')
+    const higher = fourHourContext(prepareHistory(hourly, '4h'))
+    const breakoutTime = Date.parse('2025-06-13T13:30:00Z') / 1000
+    const breakoutIndex = hourly.candles.findIndex(c => c.time === breakoutTime)
+    expect(breakoutIndex).toBeGreaterThan(0)
+    const previous = hourly.candles[breakoutIndex - 1]
+    const breakout = hourly.candles[breakoutIndex]
+    expect(breakout.time - previous.time).toBeGreaterThan(3600)
+    expect(breakout.open).toBeGreaterThan(previous.high)
+
+    const reviewedTime = Date.parse('2025-06-30T18:30:00Z') / 1000
+    const nearby = detectRazvorotka(hourly, higher).filter(item =>
+      item.direction === 'long' && Math.abs(item.detectedTime - reviewedTime) <= 3600)
+    expect(nearby).toHaveLength(0)
+  })
+
   it('scans both timeframes without crossing data breaks or using future bars for detection', () => {
     let found = 0
     const directions = new Set<string>()

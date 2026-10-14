@@ -196,11 +196,15 @@ function higherContext(candles: HigherCandle[], until: number, direction: Direct
 
 function gapAgainstBreakout(candles: Candle[], breakoutAt: number, direction: Direction, height: number, nominalSeconds: number) {
   if (breakoutAt === 0) return false
-  const gap = candles[breakoutAt].open - candles[breakoutAt - 1].close
-  const breakoutSign = direction === 'short' ? 1 : -1
-  // Small differences between successive adjusted bars are not opening gaps.
-  return gap * breakoutSign < -height * 0.15 &&
-    candles[breakoutAt].time - candles[breakoutAt - 1].time > nominalSeconds
+  const previous = candles[breakoutAt - 1], opening = candles[breakoutAt]
+  if (opening.time - previous.time <= nominalSeconds) return false
+  // An opening difference within the previous candle is not a price gap.
+  // All current markets are USD quoted; one cent or floating point/adjusted
+  // OHLC rounding is too small to count as a real non-overlapping price gap.
+  const tolerance = Math.max(0.01, height * 1e-4, Math.abs(previous.close) * 1e-6)
+  return direction === 'short'
+    ? opening.open < previous.low - tolerance
+    : opening.open > previous.high + tolerance
 }
 
 /** Reject a breakout that merely reaches a repeatedly tested older level. */
@@ -235,6 +239,26 @@ function insideLargerRange(candles: Candle[], segmentStart: number, sourceStart:
     Math.abs(apex - outer.high) <= source.height * 0.15
 }
 
+/** The apparent breakout is only another touch of a nearby, repeatedly tested outer range. */
+function insideNearbyRange(candles: Candle[], segmentStart: number, sourceStart: number, breakoutAt: number, source: { high: number; low: number; height: number }, apex: number, direction: Direction) {
+  const lookback = 24
+  if (sourceStart - segmentStart < lookback) return false
+  const prior = candles.slice(sourceStart - lookback, sourceStart)
+  const outer = bounds(candles, sourceStart - lookback, breakoutAt)
+  const tolerance = source.height * 0.1
+  const outerEdge = direction === 'long' ? outer.low : outer.high
+  const touches = prior.filter(c => Math.abs((direction === 'long' ? c.low : c.high) - outerEdge) <= tolerance)
+  if (touches.length < 3 || new Set(touches.map(c => new Date(c.time * 1000).toISOString().slice(0, 10))).size < 3) return false
+  if (direction === 'long') {
+    return Math.abs(outer.high - source.high) <= tolerance &&
+      outer.low <= source.low - source.height * 0.25 &&
+      Math.abs(apex - outer.low) <= tolerance
+  }
+  return Math.abs(outer.low - source.low) <= tolerance &&
+    outer.high >= source.high + source.height * 0.25 &&
+    Math.abs(apex - outer.high) <= tolerance
+}
+
 function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: number, end: number): RazvorotkaCase[] {
   const candles = dataset.candles
   const found: RazvorotkaCase[] = []
@@ -255,17 +279,28 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         if (gapAgainstBreakout(candles, breakoutAt, direction, source.height, dataset.interval === '1h' ? 3600 : 14400)) continue
 
         let hold = 0, consecutiveBodies = 0, apex = edge, lastBreakoutAt = breakoutAt - 1
-        let cancellationStart = -1
+        let cancellationStart = -1, pendingCancellation = false, abandonedBreakout = false
         for (let i = breakoutAt; i < Math.min(end, breakoutAt + length + 1); i++) {
           const c = candles[i]
-          // A shallow close inside the source still belongs to the breakout
-          // test. A crossing candle belongs to Phase 2 because its wick still
-          // overlaps that zone. Phase 3 starts with a fully separate candle.
+          // A shallow close inside the source still belongs to Phase 2. Once
+          // a candle closes deeply inside, a later move beyond the boundary
+          // cannot be joined to the same false breakout.
           const outsideWick = direction === 'short' ? c.high : c.low
           const deepReturn = (edge - c.close) * sign >= source.height * phaseThreeReturnFraction
-          if (deepReturn && (outsideWick - edge) * sign <= 0) {
-            cancellationStart = i
+          const wickOutside = (outsideWick - edge) * sign > 0
+          if (pendingCancellation) {
+            if (wickOutside) abandonedBreakout = true
+            else cancellationStart = i
             break
+          }
+          if (deepReturn) {
+            // Before two complete bodies, this was only an unfinished test.
+            // The outer scan will consider later candles as a new breakout.
+            if (hold < 2) { abandonedBreakout = true; break }
+            if (!wickOutside) { cancellationStart = i; break }
+            // The crossing wick stays blue; the next fully separate candle
+            // begins the cancellation, unless price revisits the blue side.
+            pendingCancellation = true
           }
           const wholeBodyOutside = (c.open - confirmationEdge) * sign >= 0 && (c.close - confirmationEdge) * sign > 0
           consecutiveBodies = wholeBodyOutside ? consecutiveBodies + 1 : 0
@@ -273,7 +308,7 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           apex = direction === 'short' ? Math.max(apex, c.high) : Math.min(apex, c.low)
           lastBreakoutAt = i
         }
-        if (hold < 2 || cancellationStart < 0 || Math.abs(apex - edge) < source.height * 0.15) continue
+        if (abandonedBreakout || hold < 2 || cancellationStart < 0 || Math.abs(apex - edge) < source.height * 0.15) continue
 
         const localTrend = classifyContext(candles.slice(Math.max(start, source.start - 16), source.start), direction, source.height)
         if (localTrend === 'opposed' || localTrend === 'range') continue
@@ -288,7 +323,8 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         const higherTrend = higherContext(higher, candles[source.start].time, direction, source.height, expectedHigherGap)
         if (higherTrend === 'opposed' || higherTrend === 'range') continue
         if (source.start - start >= 32 && localTrend !== 'aligned' && longerTrend !== 'aligned' && higherTrend !== 'aligned') continue
-        if (insideLargerRange(candles, start, source.start, breakoutAt, source, apex, direction)) continue
+        if (insideLargerRange(candles, start, source.start, breakoutAt, source, apex, direction) ||
+          insideNearbyRange(candles, start, source.start, breakoutAt, source, apex, direction)) continue
         if (overlapsPreviousLevel(candles, start, source.start, edge, apex, source.height, direction)) continue
 
         let detectedAt = -1, coverage = 0, cancellationException: RazvorotkaCase['cancellationException']

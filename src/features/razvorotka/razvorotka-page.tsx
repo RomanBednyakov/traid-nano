@@ -31,6 +31,7 @@ export function RazvorotkaPage() {
   const [showAnnotations, setShowAnnotations] = useState(true)
   const [focusOnSignal, setFocusOnSignal] = useState(false)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
+  const [caseDatasets, setCaseDatasets] = useState(() => new Map<string, MarketDataset>())
   const casesCache = useRef(new Map<string, RazvorotkaCase[]>())
 
   useEffect(() => {
@@ -79,6 +80,7 @@ export function RazvorotkaPage() {
           for (const frame of uncached) {
             const dataset = frame === '1h' ? hourly : fourHour!
             const higher = frame === '1h' ? fourHourContext(fourHour!) : dailyContext(hourly)
+            setCaseDatasets(current => new Map(current).set(`${dataset.symbol}:${frame}`, dataset))
             casesCache.current.set(`${hourly.slug}:${frame}`, detectRazvorotka(dataset, higher))
           }
         }
@@ -115,10 +117,22 @@ export function RazvorotkaPage() {
   }, [move])
 
   const pattern = patterns[index]
-  const visibleTrendBars = pattern?.candles.filter(candle => candle.time < pattern.source.start).length ?? 0
+  const fullHistory = useMemo(() => {
+    if (!pattern) return []
+    const dataset = caseDatasets.get(`${pattern.symbol}:${pattern.timeframe}`)
+    if (!dataset) return pattern.candles
+    const signalIndex = dataset.candles.findIndex(candle => candle.time === pattern.detectedTime)
+    if (signalIndex < 0) return pattern.candles
+    const breaks = new Set(dataset.quality?.breakBeforeTimes ?? [])
+    let segmentStart = 0
+    for (let i = 1; i <= signalIndex; i++) if (breaks.has(dataset.candles[i].time)) segmentStart = i
+    return dataset.candles.slice(segmentStart, signalIndex + 1)
+  }, [pattern, caseDatasets])
+  const displayPattern = useMemo(() => pattern ? { ...pattern, candles: fullHistory } : undefined, [pattern, fullHistory])
+  const visibleTrendBars = pattern ? fullHistory.filter(candle => candle.time < pattern.source.start).length : 0
   const totalFutureBars = pattern?.futureCandles.length ?? 0
   const previewBars = Math.min(totalFutureBars, pattern?.timeframe === '4h' ? 40 : 80)
-  const revealed = pattern ? Math.min(totalFutureBars, Math.max(0, replay?.key === pattern.id ? replay.bars : previewBars)) : 0
+  const revealed = pattern ? Math.min(totalFutureBars, Math.max(0, replay?.key === pattern.id ? replay.bars : totalFutureBars)) : 0
   const lastVisible = pattern && revealed ? pattern.futureCandles[revealed - 1] : null
   const change = pattern && lastVisible ? (lastVisible.close - pattern.candles.at(-1)!.close) / pattern.candles.at(-1)!.close * 100 : null
 
@@ -175,16 +189,16 @@ export function RazvorotkaPage() {
                 <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.timeframe.toUpperCase()} {directionLabel(item.direction)} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => setShowAnnotations(value => !value)} className="border-[#2b4042] bg-transparent">{showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}</Button>
-              <Button variant="outline" size="sm" onClick={() => setFocusOnSignal(value => !value)} className="border-[#2b4042] bg-transparent">{focusOnSignal ? 'Показать весь график' : 'Приблизить сигнал'}</Button>
+              <Button variant="outline" size="sm" onClick={() => setFocusOnSignal(value => !value)} className="border-[#2b4042] bg-transparent">{focusOnSignal ? 'Показать всю историю' : 'Приблизить сигнал'}</Button>
             </div>
           </div>
-          <div className="border-b border-[#203032] px-5 py-3 text-xs leading-5 text-[#9badaa]">Фазы 1–3 определяют формацию. Вход и продолжение не участвуют в поиске; сигнал направлен по исходному тренду.</div>
-          <RazvorotkaChart key={pattern.id} pattern={pattern} revealed={revealed} showAnnotations={showAnnotations} focusOnSignal={focusOnSignal} />
+          <div className="border-b border-[#203032] px-5 py-3 text-xs leading-5 text-[#9badaa]">Обзор показывает всю доступную историю до и после сигнала; кнопка «Приблизить сигнал» раскрывает фазы. Вход и продолжение не участвуют в поиске.</div>
+          <RazvorotkaChart key={pattern.id} pattern={displayPattern!} revealed={revealed} showAnnotations={showAnnotations} focusOnSignal={focusOnSignal} />
           <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
-            <Button variant="outline" size="sm" disabled={revealed === previewBars} onClick={() => setReplay({ key: pattern.id, bars: previewBars })}>Ближайшие {previewBars} {plural(previewBars, 'свеча', 'свечи', 'свечей')}</Button>
-            <Button variant="outline" size="sm" disabled={revealed === totalFutureBars} onClick={() => setReplay({ key: pattern.id, bars: totalFutureBars })}>Вся дальнейшая история</Button>
-            <Button variant="outline" size="sm" disabled={revealed >= totalFutureBars} onClick={() => setReplay({ key: pattern.id, bars: revealed + 1 })}>+1 свеча</Button>
-            <Button variant="ghost" size="sm" disabled={!revealed} onClick={() => setReplay({ key: pattern.id, bars: 0 })}>Скрыть продолжение</Button>
+            <Button variant="outline" size="sm" disabled={revealed === previewBars && focusOnSignal} onClick={() => { setReplay({ key: pattern.id, bars: previewBars }); setFocusOnSignal(true) }}>Ближайшие {previewBars} {plural(previewBars, 'свеча', 'свечи', 'свечей')}</Button>
+            <Button variant="outline" size="sm" disabled={revealed === totalFutureBars && !focusOnSignal} onClick={() => { setReplay({ key: pattern.id, bars: totalFutureBars }); setFocusOnSignal(false) }}>Вся дальнейшая история</Button>
+            <Button variant="outline" size="sm" disabled={revealed >= totalFutureBars} onClick={() => { setReplay({ key: pattern.id, bars: revealed + 1 }); setFocusOnSignal(true) }}>+1 свеча</Button>
+            <Button variant="ghost" size="sm" disabled={!revealed} onClick={() => { setReplay({ key: pattern.id, bars: 0 }); setFocusOnSignal(true) }}>Скрыть продолжение</Button>
             <span className="text-xs text-[#829695]" aria-live="polite">Открыто {revealed} из {totalFutureBars} следующих свечей</span>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-[#203032] p-4 text-xs text-[#829695]">
