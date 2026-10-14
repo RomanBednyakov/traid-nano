@@ -33,6 +33,18 @@ function shortSetup() {
   return candles
 }
 
+function singleUncoveredWickSetup() {
+  const candles = shortSetup()
+  for (let i = 24; i < 36; i++) {
+    candles[i] = i % 2 === 0
+      ? bar(i, 106, 110, 105, 106)
+      : bar(i, 104, 108, 103, 104)
+  }
+  candles[25] = bar(25, 104, 108, 100, 104)
+  candles[39] = bar(39, 107, 108, 102.8, 103.5)
+  return candles
+}
+
 describe('Разворотка detector', () => {
   it('marks short only when Phase 3 completes and keeps later bars separate', () => {
     const candles = shortSetup()
@@ -48,6 +60,9 @@ describe('Разворотка detector', () => {
     expect(extended[0].detectedTime).toBe(result[0].detectedTime)
     expect(result[0].futureCandles).toHaveLength(0)
     expect(extended[0].futureCandles).toHaveLength(1)
+    const continuation = Array.from({ length: 100 }, (_, i) => bar(40 + i, 96, 97, 95, 96))
+    const longHistory = detectRazvorotka(dataset([...candles, ...continuation]), [])
+    expect(longHistory.find(item => item.id === result[0].id)?.futureCandles).toHaveLength(100)
   })
 
   it('keeps a longer preceding move visible before the source range', () => {
@@ -67,6 +82,50 @@ describe('Разворотка detector', () => {
     expect(result).toHaveLength(1)
     expect(result[0].direction).toBe('long')
     expect(result[0].stop).toBeLessThan(result[0].source.low)
+  })
+
+  it('marks a single uncovered source wick as a weakened short or long, preserving raw coverage', () => {
+    const candles = singleUncoveredWickSetup()
+    const short = detectRazvorotka(dataset(candles), [])
+    expect(short).toHaveLength(1)
+    expect(short[0]).toMatchObject({ direction: 'short', detectedTime: candles[39].time,
+      sourceBars: 12, cancellationException: 'single_uncovered_source_wick' })
+    expect(short[0].coveragePercent).toBeCloseTo(72)
+    expect(short[0].context).not.toContain('Отмена ≥ 90%')
+    expect(short[0].uncertainties).toContain('Ослабленный сигнал: тело консолидации перекрыто, но один фитиль не перекрыт')
+
+    const mirrored = candles.map(c => ({ ...c, open: 300 - c.open, close: 300 - c.close,
+      high: 300 - c.low, low: 300 - c.high }))
+    const long = detectRazvorotka(dataset(mirrored), [])
+    expect(long).toHaveLength(1)
+    expect(long[0]).toMatchObject({ direction: 'long', detectedTime: candles[39].time,
+      sourceBars: 12, cancellationException: 'single_uncovered_source_wick' })
+    expect(long[0].coveragePercent).toBeCloseTo(72)
+  })
+
+  it('rejects two uncovered source wicks even when every source body is covered', () => {
+    const candles = singleUncoveredWickSetup()
+    candles[27] = bar(27, 104, 108, 100.5, 104)
+    expect(detectRazvorotka(dataset(candles), [])).toHaveLength(0)
+    const mirrored = candles.map(c => ({ ...c, open: 300 - c.open, close: 300 - c.close,
+      high: 300 - c.low, low: 300 - c.high }))
+    expect(detectRazvorotka(dataset(mirrored), [])).toHaveLength(0)
+  })
+
+  it('accepts a trimmed source as a regular cancellation when its original wick is also covered by 90%', () => {
+    const candles = singleUncoveredWickSetup()
+    candles[39] = bar(39, 107, 108, 100.5, 103.5)
+    const short = detectRazvorotka(dataset(candles), [])
+    expect(short).toHaveLength(1)
+    expect(short[0].coveragePercent).toBeCloseTo(95)
+    expect(short[0].cancellationException).toBeUndefined()
+
+    const mirrored = candles.map(c => ({ ...c, open: 300 - c.open, close: 300 - c.close,
+      high: 300 - c.low, low: 300 - c.high }))
+    const long = detectRazvorotka(dataset(mirrored), [])
+    expect(long).toHaveLength(1)
+    expect(long[0].coveragePercent).toBeCloseTo(95)
+    expect(long[0].cancellationException).toBeUndefined()
   })
 
   it('accepts the exact 15% breakout and 90% cancellation boundaries', () => {

@@ -83,7 +83,7 @@ export function RazvorotkaChart({ pattern, revealed, showAnnotations, focusOnSig
     if (focusOnSignal) {
       chart.timeScale().setVisibleLogicalRange({
         from: Math.max(0, pattern.candles.length - 49),
-        to: pattern.candles.length + revealed + 5,
+        to: pattern.candles.length + Math.min(revealed, pattern.timeframe === '1h' ? 80 : 40) + 5,
       })
     }
     let disposed = false

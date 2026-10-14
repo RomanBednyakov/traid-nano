@@ -48,16 +48,17 @@ beforeEach(() => {
 })
 
 describe('Разворотка page', () => {
-  it('shows the full available continuation for each case and allows candle replay', async () => {
+  it('shows the available continuation for a short history and allows candle replay', async () => {
     renderPage()
     expect(await screen.findByText('AAPL · «Разворотка» short')).toBeInTheDocument()
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
-    expect(screen.getByText(/справа: 2 свечи после сигнала/)).toBeInTheDocument()
+    expect(screen.getByText(/справа: 2 из 2 свечи после сигнала/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Вся дальнейшая история' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 0 · on')
     fireEvent.click(screen.getByRole('button', { name: '+1 свеча' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 1 · on')
-    fireEvent.click(screen.getByRole('button', { name: 'Показать продолжение' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ближайшие 2 свечи' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off')
@@ -68,6 +69,33 @@ describe('Разворотка page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 2 · off · overview')
+  })
+
+  it('previews 80 hourly or 40 four-hour bars and can reveal the entire saved continuation', async () => {
+    mocks.detectRazvorotka.mockImplementation(dataset => [{
+      ...caseData(`${dataset.interval}-case`),
+      timeframe: dataset.interval,
+      futureCandles: Array.from({ length: dataset.interval === '1h' ? 105 : 55 }, (_, i) => candle(i + 10)),
+    }])
+    renderPage()
+    fireEvent.click(screen.getByRole('button', { name: '1 час' }))
+    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 80 · on'))
+    expect(screen.getByText('Открыто 80 из 105 следующих свечей')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 105 · on')
+    expect(screen.getByText('Открыто 105 из 105 следующих свечей')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ближайшие 80 свечей' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('1h-case · 80 · on')
+
+    fireEvent.click(screen.getByRole('button', { name: '4 часа' }))
+    await waitFor(() => expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 40 · on'))
+    expect(screen.getByText('Открыто 40 из 55 следующих свечей')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Вся дальнейшая история' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 55 · on')
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 0 · on')
+    fireEvent.click(screen.getByRole('button', { name: '+1 свеча' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('4h-case · 1 · on')
   })
 
   it('shows an honest empty result and switches timeframe', async () => {

@@ -25,6 +25,7 @@ export interface RazvorotkaCase {
   holdBars: number
   breakoutDepthPercent: number
   coveragePercent: number
+  cancellationException?: 'single_uncovered_source_wick'
   stop: number
   target: number
   riskReward: number
@@ -59,24 +60,24 @@ function bounds(candles: Candle[], start: number, end: number) {
   return { high, low, height: high - low }
 }
 
-function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
-  const start = breakoutAt - length
-  if (start < 0) return null
-  const range = bounds(candles, start, breakoutAt)
-  if (range.height <= 0) return null
-  const first = candles[start].close, last = candles[breakoutAt - 1].close
-  if (Math.abs(last - first) > range.height * 0.6) return null
+function accumulationQuality(candles: Candle[], start: number, end: number, high: number, low: number) {
+  const length = end - start
+  const height = high - low
+  if (height <= 0 || Math.abs(candles[end - 1].close - candles[start].close) > height * 0.6) return false
   if (length >= 24) {
     const recentLength = Math.max(12, Math.floor(length * 0.75))
-    const recent = bounds(candles, breakoutAt - recentLength, breakoutAt)
-    // Do not extend a local accumulation backward into an older, wider move.
-    if (recent.height <= 0 || range.height > recent.height * 1.35) return null
+    let recentHigh = -Infinity, recentLow = Infinity
+    for (let i = end - recentLength; i < end; i++) {
+      recentHigh = Math.max(recentHigh, Math.min(candles[i].high, high))
+      recentLow = Math.min(recentLow, Math.max(candles[i].low, low))
+    }
+    if (recentHigh <= recentLow || height > (recentHigh - recentLow) * 1.35) return false
   }
   let topTouches = 0, bottomTouches = 0, transitions = 0
   let lastSide: 'top' | 'bottom' | null = null
-  for (let i = start; i < breakoutAt; i++) {
-    const top = candles[i].high >= range.high - range.height * 0.1
-    const bottom = candles[i].low <= range.low + range.height * 0.1
+  for (let i = start; i < end; i++) {
+    const top = candles[i].high >= high - height * 0.1
+    const bottom = candles[i].low <= low + height * 0.1
     if (top) topTouches++
     if (bottom) bottomTouches++
     if (top === bottom) continue
@@ -85,7 +86,38 @@ function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
     lastSide = side
   }
   const broadAccumulation = length >= 48 && topTouches >= 3 && bottomTouches >= 3 && transitions >= 1
-  if (topTouches < 2 || bottomTouches < 2 || (transitions < 3 && !broadAccumulation)) return null
+  return topTouches >= 2 && bottomTouches >= 2 && (transitions >= 3 || broadAccumulation)
+}
+
+function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
+  const start = breakoutAt - length
+  if (start < 0) return null
+  const range = bounds(candles, start, breakoutAt)
+  if (range.height <= 0) return null
+  const regular = accumulationQuality(candles, start, breakoutAt, range.high, range.low)
+  let allowsSingleLowWick = false, allowsSingleHighWick = false
+  if (!regular) {
+    let secondLow = Infinity, secondHigh = -Infinity
+    let lowOutlier: Candle | null = null, highOutlier: Candle | null = null
+    for (let i = start; i < breakoutAt; i++) {
+      const candle = candles[i]
+      if (candle.low === range.low) {
+        if (lowOutlier) secondLow = range.low
+        lowOutlier = candle
+      } else secondLow = Math.min(secondLow, candle.low)
+      if (candle.high === range.high) {
+        if (highOutlier) secondHigh = range.high
+        highOutlier = candle
+      } else secondHigh = Math.max(secondHigh, candle.high)
+    }
+    allowsSingleLowWick = secondLow - range.low > range.height * 0.1 &&
+      Math.min(lowOutlier!.open, lowOutlier!.close) >= secondLow &&
+      accumulationQuality(candles, start, breakoutAt, range.high, secondLow)
+    allowsSingleHighWick = range.high - secondHigh > range.height * 0.1 &&
+      Math.max(highOutlier!.open, highOutlier!.close) <= secondHigh &&
+      accumulationQuality(candles, start, breakoutAt, secondHigh, range.low)
+    if (!allowsSingleLowWick && !allowsSingleHighWick) return null
+  }
   let high = range.high, low = range.low
   if (length >= 48) {
     let secondHigh = -Infinity, secondLow = Infinity, highCount = 0, lowCount = 0
@@ -99,7 +131,26 @@ function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
     if (highCount === 1 && high - secondHigh > range.height * 0.05) high = secondHigh
     if (lowCount === 1 && secondLow - low > range.height * 0.05) low = secondLow
   }
-  return { high, low, height: high - low, rawHigh: range.high, rawLow: range.low, start, length }
+  return { high, low, height: high - low, rawHigh: range.high, rawLow: range.low, start, length,
+    regular, allowsSingleLowWick, allowsSingleHighWick }
+}
+
+/** The cancellation may leave only one source wick uncovered, with every body covered. */
+function singleUncoveredSourceWick(candles: Candle[], start: number, end: number, extreme: number, direction: Direction, height: number) {
+  const tolerance = height * 1e-8
+  let uncovered = 0
+  for (let i = start; i < end; i++) {
+    const candle = candles[i]
+    if (direction === 'short') {
+      if (Math.min(candle.open, candle.close) < extreme - tolerance) return false
+      if (candle.low < extreme - tolerance) uncovered++
+    } else {
+      if (Math.max(candle.open, candle.close) > extreme + tolerance) return false
+      if (candle.high > extreme + tolerance) uncovered++
+    }
+    if (uncovered > 1) return false
+  }
+  return uncovered === 1
 }
 
 function classifyContext(sample: Pick<HigherCandle, 'open' | 'high' | 'low' | 'close'>[], direction: Direction, height: number) {
@@ -118,6 +169,12 @@ function classifyContext(sample: Pick<HigherCandle, 'open' | 'high' | 'low' | 'c
   if (move <= -threshold && shiftHigh < 0 && shiftLow < 0) return 'opposed' as const
   if (Math.abs(move) < threshold * 0.5 && Math.abs(shiftHigh) < threshold && Math.abs(shiftLow) < threshold) return 'range' as const
   return 'unknown' as const
+}
+
+function precedingMove(candles: Candle[], segmentStart: number, sourceStart: number, length: number, direction: Direction, height: number) {
+  if (sourceStart - segmentStart < length) return null
+  const sign = direction === 'long' ? 1 : -1
+  return sign * (candles[sourceStart - 1].close - candles[sourceStart - length].open) / height
 }
 
 function higherContext(candles: HigherCandle[], until: number, direction: Direction, height: number, expectedGap: number) {
@@ -189,6 +246,7 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
       const source = sourceRange(candles, breakoutAt, length)
       if (!source) continue
       for (const direction of ['short', 'long'] as const) {
+        if (!source.regular && !(direction === 'short' ? source.allowsSingleLowWick : source.allowsSingleHighWick)) continue
         const sign = direction === 'short' ? 1 : -1
         const edge = direction === 'short' ? source.high : source.low
         const confirmationEdge = direction === 'short' ? source.rawHigh : source.rawLow
@@ -221,6 +279,11 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         if (localTrend === 'opposed' || localTrend === 'range') continue
         const longerTrend = classifyContext(candles.slice(Math.max(start, source.start - minimumVisibleTrendBars), source.start), direction, source.height)
         if (longerTrend === 'opposed') continue
+        const mediumMove = precedingMove(candles, start, source.start, 64, direction, source.height)
+        const longMove = precedingMove(candles, start, source.start, minimumVisibleTrendBars, direction, source.height)
+        // A short pullback before consolidation is normal. Two independently
+        // measured horizons moving against the proposed trend are not.
+        if (mediumMove !== null && longMove !== null && mediumMove < 0 && longMove < 0) continue
         const expectedHigherGap = dataset.category === 'crypto' ? (dataset.interval === '1h' ? 14400 : 86400) : Infinity
         const higherTrend = higherContext(higher, candles[source.start].time, direction, source.height, expectedHigherGap)
         if (higherTrend === 'opposed' || higherTrend === 'range') continue
@@ -228,7 +291,7 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         if (insideLargerRange(candles, start, source.start, breakoutAt, source, apex, direction)) continue
         if (overlapsPreviousLevel(candles, start, source.start, edge, apex, source.height, direction)) continue
 
-        let detectedAt = -1, coverage = 0
+        let detectedAt = -1, coverage = 0, cancellationException: RazvorotkaCase['cancellationException']
         const cancelLimit = Math.min(end, cancellationStart + length)
         for (let i = cancellationStart; i < cancelLimit; i++) {
           // Once cancellation begins, its candles cannot revisit the false
@@ -237,11 +300,14 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           if ((outsideWick - edge) * sign > 0) break
           const extreme = direction === 'short' ? candles[i].low : candles[i].high
           const fraction = direction === 'short'
-            ? (source.high - extreme) / source.height
-            : (extreme - source.low) / source.height
-          if (fraction >= 0.9) {
+            ? (source.rawHigh - extreme) / (source.rawHigh - source.rawLow)
+            : (extreme - source.rawLow) / (source.rawHigh - source.rawLow)
+          const oneUncoveredWick = fraction < 0.9 &&
+            singleUncoveredSourceWick(candles, source.start, breakoutAt, extreme, direction, source.rawHigh - source.rawLow)
+          if (fraction >= 0.9 || oneUncoveredWick) {
             detectedAt = i
             coverage = Math.min(fraction, 1) * 100
+            if (oneUncoveredWick) cancellationException = 'single_uncovered_source_wick'
             break
           }
         }
@@ -259,11 +325,14 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         // retest or midpoint is required before publishing the structure.
         if (!best || best.rr < 2) continue
 
-        const context = ['Консолидация ≥ 12 свечей', 'Ложный выход ≥ 15%', 'Закрепление ≥ 2 закрытий', 'Отмена ≥ 90%']
+        const context = ['Консолидация ≥ 12 свечей', 'Ложный выход ≥ 15%', 'Закрепление ≥ 2 закрытий']
         const uncertainties: string[] = []
+        if (cancellationException) uncertainties.push('Ослабленный сигнал: тело консолидации перекрыто, но один фитиль не перекрыт')
+        else context.push('Отмена ≥ 90%')
         if (localTrend === 'aligned') context.push('Тренд рабочего ТФ совпадает с направлением сигнала')
         else uncertainties.push('Ступенчатый тренд на рабочем ТФ не подтверждён автоматически')
-        if (longerTrend === 'aligned') context.push('Длинный контекст рабочего ТФ совпадает с направлением сигнала')
+        if (longMove === null) uncertainties.push(`До консолидации доступно ${source.start - start} свечей: длинный предтренд требует проверки`)
+        else if (longerTrend === 'aligned') context.push('Длинный контекст рабочего ТФ совпадает с направлением сигнала')
         else uncertainties.push('Длинный контекст рабочего ТФ требует ручной проверки')
         if (higherTrend === 'aligned') context.push('Тренд старшего ТФ совпадает с направлением сигнала')
         else uncertainties.push('Тренд старшего ТФ не подтверждён доступной историей')
@@ -272,7 +341,7 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         const returnBounds = bounds(candles, breakoutEnd + 1, detectedAt + 1)
         let displaySourceStart = source.start
         const maximumExtension = Math.min(24, Math.floor(length * 0.25))
-        while (displaySourceStart > start && source.start - displaySourceStart < maximumExtension) {
+        while (!cancellationException && displaySourceStart > start && source.start - displaySourceStart < maximumExtension) {
           const previous = candles[displaySourceStart - 1]
           if (previous.high > source.high || previous.low < source.low) break
           displaySourceStart--
@@ -289,14 +358,14 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           sourceBars: breakoutAt - displaySourceStart,
           holdBars: hold,
           breakoutDepthPercent: Math.abs(apex - edge) / source.height * 100,
-          coveragePercent: coverage,
+          coveragePercent: coverage, cancellationException,
           stop, target, riskReward: best.rr, entryZone: best.entry,
           entryOptions: options.map(option => ({ label: option.label, price: option.entry, riskReward: option.rr })),
           context, uncertainties,
           // Preserve enough history to judge the move leading into Phase 1.
           // The chart may begin at a known data break when fewer bars exist.
           candles: candles.slice(Math.max(start, displaySourceStart - Math.max(minimumVisibleTrendBars, length * 3)), detectedAt + 1),
-          futureCandles: candles.slice(detectedAt + 1, Math.min(end, detectedAt + 1 + (dataset.interval === '1h' ? 80 : 40))),
+          futureCandles: candles.slice(detectedAt + 1, end),
         }
         matchedAt = detectedAt
         break
