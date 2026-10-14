@@ -7,6 +7,7 @@ interface ChartProps {
   pattern: RazvorotkaCase
   revealed: number
   showAnnotations: boolean
+  focusOnSignal: boolean
 }
 
 interface Rect { left: number; top: number; width: number; height: number }
@@ -58,7 +59,7 @@ function Level({ y, width, color, label }: { y: number; width: number; color: st
   </div>
 }
 
-export function RazvorotkaChart({ pattern, revealed, showAnnotations }: ChartProps) {
+export function RazvorotkaChart({ pattern, revealed, showAnnotations, focusOnSignal }: ChartProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [overlay, setOverlay] = useState<Geometry | null>(null)
 
@@ -79,6 +80,12 @@ export function RazvorotkaChart({ pattern, revealed, showAnnotations }: ChartPro
     })
     series.setData([...pattern.candles, ...pattern.futureCandles.slice(0, revealed)])
     chart.timeScale().fitContent()
+    if (focusOnSignal) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: Math.max(0, pattern.candles.length - 49),
+        to: pattern.candles.length + revealed + 5,
+      })
+    }
     let disposed = false
     const update = () => { if (!disposed) setOverlay(geometry(chart, series, pattern)) }
     const frame = requestAnimationFrame(update)
@@ -98,7 +105,7 @@ export function RazvorotkaChart({ pattern, revealed, showAnnotations }: ChartPro
       container.removeEventListener('wheel', update)
       chart.remove()
     }
-  }, [pattern, revealed])
+  }, [pattern, revealed, focusOnSignal])
 
   return <div className="relative h-[520px] min-h-[420px] w-full overflow-hidden rounded-xl bg-[#071011] lg:h-[660px]" data-testid="razvorotka-chart" data-case-id={pattern.id}>
     <div ref={containerRef} className="absolute inset-0" />

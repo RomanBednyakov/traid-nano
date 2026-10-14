@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@/features/pattern-review/market-data', () => ({ loadMarketCatalog: mocks.loadMarketCatalog, loadMarketDataset: mocks.loadMarketDataset }))
 vi.mock('@/features/pattern-review/data-integrity', () => ({ prepareHistory: mocks.prepareHistory }))
 vi.mock('./razvorotka-detector', () => ({ detectRazvorotka: mocks.detectRazvorotka, dailyContext: mocks.dailyContext, fourHourContext: mocks.fourHourContext }))
-vi.mock('./razvorotka-chart', () => ({ RazvorotkaChart: ({ pattern, revealed, showAnnotations }: { pattern: { id: string }; revealed: number; showAnnotations: boolean }) => <div data-testid="razvorotka-chart">{pattern.id} · {revealed} · {showAnnotations ? 'on' : 'off'}</div> }))
+vi.mock('./razvorotka-chart', () => ({ RazvorotkaChart: ({ pattern, revealed, showAnnotations, focusOnSignal }: { pattern: { id: string }; revealed: number; showAnnotations: boolean; focusOnSignal: boolean }) => <div data-testid="razvorotka-chart">{pattern.id} · {revealed} · {showAnnotations ? 'on' : 'off'} · {focusOnSignal ? 'focus' : 'overview'}</div> }))
 
 const catalog = { instruments: [{ symbol: 'AAPL', slug: 'aapl', name: 'Apple', category: 'stocks', datasets: {
   '1h': { file: '/data/market/aapl-1h.json', startDate: '2025-01-01', endDate: '2026-01-01' },
@@ -61,8 +61,13 @@ describe('Разворотка page', () => {
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off')
+    fireEvent.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off · focus')
+    fireEvent.click(screen.getByRole('button', { name: 'Показать весь график' }))
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · off · overview')
+    fireEvent.click(screen.getByRole('button', { name: 'Приблизить сигнал' }))
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 2 · off')
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 2 · off · overview')
   })
 
   it('shows an honest empty result and switches timeframe', async () => {

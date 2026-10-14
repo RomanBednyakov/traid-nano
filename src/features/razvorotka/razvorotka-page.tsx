@@ -28,6 +28,7 @@ export function RazvorotkaPage() {
   const [index, setIndex] = useState(0)
   const [replay, setReplay] = useState<{ key: string; bars: number } | null>(null)
   const [showAnnotations, setShowAnnotations] = useState(true)
+  const [focusOnSignal, setFocusOnSignal] = useState(false)
   const [status, setStatus] = useState<'catalog' | 'loading' | 'ready' | 'empty' | 'error'>('catalog')
   const casesCache = useRef(new Map<string, RazvorotkaCase[]>())
 
@@ -59,6 +60,7 @@ export function RazvorotkaPage() {
     setProcessed(0)
     setIndex(0)
     setReplay(null)
+    setFocusOnSignal(false)
   }
 
   useEffect(() => {
@@ -97,6 +99,7 @@ export function RazvorotkaPage() {
   const move = useCallback((direction: number) => {
     setIndex(current => patterns.length ? (current + direction + patterns.length) % patterns.length : 0)
     setReplay(null)
+    setFocusOnSignal(false)
   }, [patterns.length])
 
   useEffect(() => {
@@ -164,15 +167,16 @@ export function RazvorotkaPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#203032] p-5">
             <div><div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">Случай {index + 1} из {patterns.length} · {pattern.timeframe.toUpperCase()}</div><h1 className="text-xl font-semibold text-white">{pattern.symbol} · «Разворотка» {pattern.direction === 'short' ? 'short' : 'long'}</h1><p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {formatTime(pattern.detectedTime)} UTC</p><p className="mt-1 text-xs text-[#829695]">Контекст слева: {visibleTrendBars} {plural(visibleTrendBars, 'свеча', 'свечи', 'свечей')} до консолидации · справа: {revealed} {plural(revealed, 'свеча', 'свечи', 'свечей')} после сигнала</p></div>
             <div className="flex flex-wrap items-center gap-2">
-              <Select value={String(index)} onValueChange={value => { setIndex(Number(value)); setReplay(null) }}>
+              <Select value={String(index)} onValueChange={value => { setIndex(Number(value)); setReplay(null); setFocusOnSignal(false) }}>
                 <SelectTrigger aria-label="Найденный случай" className="h-9 min-w-52 border-[#2b4042] bg-[#091315] text-xs text-white"><SelectValue /></SelectTrigger>
                 <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.timeframe.toUpperCase()} {item.direction} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => setShowAnnotations(value => !value)} className="border-[#2b4042] bg-transparent">{showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}</Button>
+              <Button variant="outline" size="sm" onClick={() => setFocusOnSignal(value => !value)} className="border-[#2b4042] bg-transparent">{focusOnSignal ? 'Показать весь график' : 'Приблизить сигнал'}</Button>
             </div>
           </div>
           <div className="border-b border-[#203032] px-5 py-3 text-xs leading-5 text-[#9badaa]">Фазы 1–3 определяют формацию. Вход и продолжение не участвуют в поиске; сигнал направлен по исходному тренду.</div>
-          <RazvorotkaChart key={pattern.id} pattern={pattern} revealed={revealed} showAnnotations={showAnnotations} />
+          <RazvorotkaChart key={pattern.id} pattern={pattern} revealed={revealed} showAnnotations={showAnnotations} focusOnSignal={focusOnSignal} />
           <div className="flex flex-wrap items-center gap-2 border-t border-[#203032] p-4">
             <Button variant="outline" size="sm" disabled={revealed === pattern.futureCandles.length} onClick={() => setReplay({ key: pattern.id, bars: pattern.futureCandles.length })}>Показать продолжение</Button>
             <Button variant="outline" size="sm" disabled={revealed >= pattern.futureCandles.length} onClick={() => setReplay({ key: pattern.id, bars: revealed + 1 })}>+1 свеча</Button>
