@@ -46,7 +46,9 @@ export interface HigherCandle {
 }
 
 const lengths = Array.from({ length: 85 }, (_, i) => 96 - i)
-const maxBreakoutBars = 12
+const minimumVisibleTrendBars = 160
+const previousLevelLookbackBars = 200
+const phaseThreeReturnFraction = 0.2
 
 function bounds(candles: Candle[], start: number, end: number) {
   let high = -Infinity, low = Infinity
@@ -64,6 +66,12 @@ function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
   if (range.height <= 0) return null
   const first = candles[start].close, last = candles[breakoutAt - 1].close
   if (Math.abs(last - first) > range.height * 0.6) return null
+  if (length >= 24) {
+    const recentLength = Math.max(12, Math.floor(length * 0.75))
+    const recent = bounds(candles, breakoutAt - recentLength, breakoutAt)
+    // Do not extend a local accumulation backward into an older, wider move.
+    if (recent.height <= 0 || range.height > recent.height * 1.35) return null
+  }
   let topTouches = 0, bottomTouches = 0, transitions = 0
   let lastSide: 'top' | 'bottom' | null = null
   for (let i = start; i < breakoutAt; i++) {
@@ -76,8 +84,22 @@ function sourceRange(candles: Candle[], breakoutAt: number, length: number) {
     if (lastSide && side !== lastSide) transitions++
     lastSide = side
   }
-  if (topTouches < 2 || bottomTouches < 2 || transitions < 3) return null
-  return { ...range, start, length }
+  const broadAccumulation = length >= 48 && topTouches >= 3 && bottomTouches >= 3 && transitions >= 1
+  if (topTouches < 2 || bottomTouches < 2 || (transitions < 3 && !broadAccumulation)) return null
+  let high = range.high, low = range.low
+  if (length >= 48) {
+    let secondHigh = -Infinity, secondLow = Infinity, highCount = 0, lowCount = 0
+    for (let i = start; i < breakoutAt; i++) {
+      if (candles[i].high === high) highCount++
+      else secondHigh = Math.max(secondHigh, candles[i].high)
+      if (candles[i].low === low) lowCount++
+      else secondLow = Math.min(secondLow, candles[i].low)
+    }
+    // A single long wick need not redefine an otherwise repeated boundary.
+    if (highCount === 1 && high - secondHigh > range.height * 0.05) high = secondHigh
+    if (lowCount === 1 && secondLow - low > range.height * 0.05) low = secondLow
+  }
+  return { high, low, height: high - low, rawHigh: range.high, rawLow: range.low, start, length }
 }
 
 function classifyContext(sample: Pick<HigherCandle, 'open' | 'high' | 'low' | 'close'>[], direction: Direction, height: number) {
@@ -124,6 +146,38 @@ function gapAgainstBreakout(candles: Candle[], breakoutAt: number, direction: Di
     candles[breakoutAt].time - candles[breakoutAt - 1].time > nominalSeconds
 }
 
+/** Reject a breakout that merely reaches a repeatedly tested older level. */
+function overlapsPreviousLevel(candles: Candle[], segmentStart: number, sourceStart: number, edge: number, apex: number, height: number, direction: Direction) {
+  const tolerance = height * 0.02
+  const prior = candles.slice(Math.max(segmentStart, sourceStart - previousLevelLookbackBars), sourceStart)
+  const touches = prior.filter(c => Math.abs((direction === 'short' ? c.high : c.low) - apex) <= tolerance)
+  if (touches.length < 5) return false
+  const sessions = new Set(touches.map(c => new Date(c.time * 1000).toISOString().slice(0, 10)))
+  if (sessions.size < 3) return false
+  const levels = touches.map(c => direction === 'short' ? c.high : c.low).sort((a, b) => a - b)
+  const previousLevel = levels[Math.floor(levels.length / 2)]
+  const sign = direction === 'short' ? 1 : -1
+  const previousZoneHeight = (previousLevel - edge) * sign
+  if (previousZoneHeight < height * 0.15) return false
+  const penetration = (apex - edge) * sign / previousZoneHeight
+  return penetration > 0.5 && penetration < 2
+}
+
+/** A smaller source cannot use the far edge of an enclosing range as its breakout. */
+function insideLargerRange(candles: Candle[], segmentStart: number, sourceStart: number, breakoutAt: number, source: { high: number; low: number; height: number }, apex: number, direction: Direction) {
+  const outerStart = Math.max(segmentStart, sourceStart - 96)
+  if (sourceStart - outerStart < 24) return false
+  const outer = bounds(candles, outerStart, breakoutAt)
+  if (direction === 'long') {
+    return Math.abs(outer.high - source.high) <= source.height * 0.1 &&
+      outer.low <= source.low - source.height * 0.25 &&
+      Math.abs(apex - outer.low) <= source.height * 0.15
+  }
+  return Math.abs(outer.low - source.low) <= source.height * 0.1 &&
+    outer.high >= source.high + source.height * 0.25 &&
+    Math.abs(apex - outer.high) <= source.height * 0.15
+}
+
 function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: number, end: number): RazvorotkaCase[] {
   const candles = dataset.candles
   const found: RazvorotkaCase[] = []
@@ -137,28 +191,50 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
       for (const direction of ['short', 'long'] as const) {
         const sign = direction === 'short' ? 1 : -1
         const edge = direction === 'short' ? source.high : source.low
-        if ((candles[breakoutAt].close - edge) * sign <= 0) continue
+        const confirmationEdge = direction === 'short' ? source.rawHigh : source.rawLow
+        const openingExtreme = direction === 'short' ? candles[breakoutAt].high : candles[breakoutAt].low
+        if ((openingExtreme - edge) * sign <= 0) continue
         if (gapAgainstBreakout(candles, breakoutAt, direction, source.height, dataset.interval === '1h' ? 3600 : 14400)) continue
 
-        let hold = 0, apex = edge, lastBreakoutAt = breakoutAt
-        for (let i = breakoutAt; i < Math.min(end, breakoutAt + maxBreakoutBars); i++) {
+        let hold = 0, consecutiveBodies = 0, apex = edge, lastBreakoutAt = breakoutAt - 1
+        let cancellationStart = -1
+        for (let i = breakoutAt; i < Math.min(end, breakoutAt + length + 1); i++) {
           const c = candles[i]
-          if ((c.close - edge) * sign <= 0) break
-          hold++
+          // A shallow close inside the source still belongs to the breakout
+          // test. A crossing candle belongs to Phase 2 because its wick still
+          // overlaps that zone. Phase 3 starts with a fully separate candle.
+          const outsideWick = direction === 'short' ? c.high : c.low
+          const deepReturn = (edge - c.close) * sign >= source.height * phaseThreeReturnFraction
+          if (deepReturn && (outsideWick - edge) * sign <= 0) {
+            cancellationStart = i
+            break
+          }
+          const wholeBodyOutside = (c.open - confirmationEdge) * sign >= 0 && (c.close - confirmationEdge) * sign > 0
+          consecutiveBodies = wholeBodyOutside ? consecutiveBodies + 1 : 0
+          hold = Math.max(hold, consecutiveBodies)
           apex = direction === 'short' ? Math.max(apex, c.high) : Math.min(apex, c.low)
           lastBreakoutAt = i
         }
-        if (hold < 2 || Math.abs(apex - edge) < source.height * 0.15) continue
+        if (hold < 2 || cancellationStart < 0 || Math.abs(apex - edge) < source.height * 0.15) continue
 
         const localTrend = classifyContext(candles.slice(Math.max(start, source.start - 16), source.start), direction, source.height)
         if (localTrend === 'opposed' || localTrend === 'range') continue
+        const longerTrend = classifyContext(candles.slice(Math.max(start, source.start - minimumVisibleTrendBars), source.start), direction, source.height)
+        if (longerTrend === 'opposed') continue
         const expectedHigherGap = dataset.category === 'crypto' ? (dataset.interval === '1h' ? 14400 : 86400) : Infinity
         const higherTrend = higherContext(higher, candles[source.start].time, direction, source.height, expectedHigherGap)
         if (higherTrend === 'opposed' || higherTrend === 'range') continue
+        if (source.start - start >= 32 && localTrend !== 'aligned' && longerTrend !== 'aligned' && higherTrend !== 'aligned') continue
+        if (insideLargerRange(candles, start, source.start, breakoutAt, source, apex, direction)) continue
+        if (overlapsPreviousLevel(candles, start, source.start, edge, apex, source.height, direction)) continue
 
         let detectedAt = -1, coverage = 0
-        const cancelLimit = Math.min(end, lastBreakoutAt + length * 2 + 1)
-        for (let i = lastBreakoutAt + 1; i < cancelLimit; i++) {
+        const cancelLimit = Math.min(end, cancellationStart + length)
+        for (let i = cancellationStart; i < cancelLimit; i++) {
+          // Once cancellation begins, its candles cannot revisit the false
+          // breakout side of the source boundary, even with a wick.
+          const outsideWick = direction === 'short' ? candles[i].high : candles[i].low
+          if ((outsideWick - edge) * sign > 0) break
           const extreme = direction === 'short' ? candles[i].low : candles[i].high
           const fraction = direction === 'short'
             ? (source.high - extreme) / source.height
@@ -187,28 +263,39 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
         const uncertainties: string[] = []
         if (localTrend === 'aligned') context.push('Тренд рабочего ТФ совпадает с направлением сигнала')
         else uncertainties.push('Ступенчатый тренд на рабочем ТФ не подтверждён автоматически')
+        if (longerTrend === 'aligned') context.push('Длинный контекст рабочего ТФ совпадает с направлением сигнала')
+        else uncertainties.push('Длинный контекст рабочего ТФ требует ручной проверки')
         if (higherTrend === 'aligned') context.push('Тренд старшего ТФ совпадает с направлением сигнала')
         else uncertainties.push('Тренд старшего ТФ не подтверждён доступной историей')
         uncertainties.push('Симметрия предыдущих консолидаций требует ручной проверки')
         const breakoutEnd = Math.max(breakoutAt, lastBreakoutAt)
         const returnBounds = bounds(candles, breakoutEnd + 1, detectedAt + 1)
+        let displaySourceStart = source.start
+        const maximumExtension = Math.min(24, Math.floor(length * 0.25))
+        while (displaySourceStart > start && source.start - displaySourceStart < maximumExtension) {
+          const previous = candles[displaySourceStart - 1]
+          if (previous.high > source.high || previous.low < source.low) break
+          displaySourceStart--
+        }
         match = {
           id: `${dataset.slug}-${dataset.interval}-${direction}-${candles[breakoutAt].time}`,
           symbol: dataset.symbol,
           timeframe: dataset.interval,
           direction,
           detectedTime: candles[detectedAt].time,
-          source: { start: candles[source.start].time, end: candles[breakoutAt - 1].time, high: source.high, low: source.low },
+          source: { start: candles[displaySourceStart].time, end: candles[breakoutAt - 1].time, high: source.high, low: source.low },
           breakout: { start: candles[breakoutAt].time, end: candles[breakoutEnd].time, high: Math.max(edge, apex), low: Math.min(edge, apex) },
           cancellation: { start: candles[breakoutEnd + 1].time, end: candles[detectedAt].time, high: returnBounds.high, low: returnBounds.low },
-          sourceBars: length,
+          sourceBars: breakoutAt - displaySourceStart,
           holdBars: hold,
           breakoutDepthPercent: Math.abs(apex - edge) / source.height * 100,
           coveragePercent: coverage,
           stop, target, riskReward: best.rr, entryZone: best.entry,
           entryOptions: options.map(option => ({ label: option.label, price: option.entry, riskReward: option.rr })),
           context, uncertainties,
-          candles: candles.slice(Math.max(start, source.start - Math.max(48, length)), detectedAt + 1),
+          // Preserve enough history to judge the move leading into Phase 1.
+          // The chart may begin at a known data break when fewer bars exist.
+          candles: candles.slice(Math.max(start, displaySourceStart - Math.max(minimumVisibleTrendBars, length * 3)), detectedAt + 1),
           futureCandles: candles.slice(detectedAt + 1, Math.min(end, detectedAt + 1 + (dataset.interval === '1h' ? 80 : 40))),
         }
         matchedAt = detectedAt

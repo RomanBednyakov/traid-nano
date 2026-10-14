@@ -50,6 +50,17 @@ describe('Разворотка detector', () => {
     expect(extended[0].futureCandles).toHaveLength(1)
   })
 
+  it('keeps a longer preceding move visible before the source range', () => {
+    const leadIn = Array.from({ length: 160 }, (_, i) => {
+      const value = 500 - i * 2.12
+      return bar(i, value + 0.5, value + 1, value - 1, value)
+    })
+    const formation = shortSetup().map(c => ({ ...c, time: (c.time + 160 * 3600) as UTCTimestamp }))
+    const result = detectRazvorotka(dataset([...leadIn, ...formation]), [])
+    expect(result).toHaveLength(1)
+    expect(result[0].candles.filter(c => c.time < result[0].source.start)).toHaveLength(160)
+  })
+
   it('finds the mirror long setup', () => {
     const mirrored = shortSetup().map(c => ({ ...c, open: 300 - c.open, close: 300 - c.close, high: 300 - c.low, low: 300 - c.high }))
     const result = detectRazvorotka(dataset(mirrored), [])
@@ -77,6 +88,7 @@ describe('Разворотка detector', () => {
     const shallow = shortSetup()
     shallow[36] = bar(36, 110, 111.3, 109, 110.6)
     shallow[37] = bar(37, 110.6, 111.4, 110.1, 110.8)
+    shallow[38] = bar(38, 110.8, 111.4, 105, 107)
     expect(detectRazvorotka(dataset(shallow), [])).toHaveLength(0)
 
     const oneClose = shortSetup()

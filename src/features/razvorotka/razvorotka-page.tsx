@@ -111,7 +111,8 @@ export function RazvorotkaPage() {
   }, [move])
 
   const pattern = patterns[index]
-  const revealed = pattern && replay?.key === pattern.id ? replay.bars : pattern?.futureCandles.length ?? 0
+  const visibleTrendBars = pattern?.candles.filter(candle => candle.time < pattern.source.start).length ?? 0
+  const revealed = pattern && replay?.key === pattern.id ? replay.bars : 0
   const lastVisible = pattern && revealed ? pattern.futureCandles[revealed - 1] : null
   const change = pattern && lastVisible ? (lastVisible.close - pattern.candles.at(-1)!.close) / pattern.candles.at(-1)!.close * 100 : null
 
@@ -161,7 +162,7 @@ export function RazvorotkaPage() {
       </div></div> : <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="min-w-0 overflow-hidden rounded-2xl border border-[#203032] bg-[#0b1517]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#203032] p-5">
-            <div><div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">Случай {index + 1} из {patterns.length} · {pattern.timeframe.toUpperCase()}</div><h1 className="text-xl font-semibold text-white">{pattern.symbol} · «Разворотка» {pattern.direction === 'short' ? 'short' : 'long'}</h1><p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {formatTime(pattern.detectedTime)} UTC</p></div>
+            <div><div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">Случай {index + 1} из {patterns.length} · {pattern.timeframe.toUpperCase()}</div><h1 className="text-xl font-semibold text-white">{pattern.symbol} · «Разворотка» {pattern.direction === 'short' ? 'short' : 'long'}</h1><p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {formatTime(pattern.detectedTime)} UTC</p><p className="mt-1 text-xs text-[#829695]">Контекст слева: {visibleTrendBars} {plural(visibleTrendBars, 'свеча', 'свечи', 'свечей')} до консолидации</p></div>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={String(index)} onValueChange={value => { setIndex(Number(value)); setReplay(null) }}>
                 <SelectTrigger aria-label="Найденный случай" className="h-9 min-w-52 border-[#2b4042] bg-[#091315] text-xs text-white"><SelectValue /></SelectTrigger>

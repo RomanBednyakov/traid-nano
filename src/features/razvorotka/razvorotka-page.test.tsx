@@ -51,15 +51,13 @@ describe('Разворотка page', () => {
   it('navigates cases, replays only revealed candles and toggles annotations', async () => {
     renderPage()
     expect(await screen.findByText('AAPL · «Разворотка» short')).toBeInTheDocument()
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
-    fireEvent.click(screen.getByRole('button', { name: 'Скрыть продолжение' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 0 · on')
     fireEvent.click(screen.getByRole('button', { name: '+1 свеча' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 1 · on')
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть разметку' }))
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 1 · off')
     fireEvent.click(screen.getByRole('button', { name: 'Далее' }))
-    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 2 · off')
+    expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('second · 0 · off')
   })
 
   it('shows an honest empty result and switches timeframe', async () => {
