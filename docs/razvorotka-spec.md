@@ -14,7 +14,7 @@ Local, longer (up to 160 bars), and higher timeframe trends are checked. Clearly
 
 A feasible 1:2 risk/reward at the source edge or midpoint is required for publication as a candidate. Stop is just beyond the false breakout and target is the opposite source boundary. This is a hypothetical estimate, not an executed trade. Volume does not exist in the saved datasets, so the 6–11 candle exception and volume factors are not evaluated. Symmetry of earlier consolidations remains flagged for manual review.
 
-The 1H scanner uses completed prepared 4H candles for higher context; the 4H scanner uses completed daily bars derived from prepared 1H history. Search respects known data breaks and uses no candle after its Phase 3 marker. Later candles are initially hidden and can be revealed independently.
+The 1H scanner uses completed prepared 4H candles for higher context; the 4H scanner uses completed daily bars derived from prepared 1H history. Search respects known data breaks and uses no candle after its Phase 3 marker. Later candles are shown by default for visual review, but remain excluded from recognition. They can be hidden and replayed independently.
 
 ## Customer review check
 
@@ -24,6 +24,8 @@ The 1H scanner uses completed prepared 4H candles for higher context; the 4H sca
 
 The page combines all nine saved instruments and both timeframes, ordered by Phase 3 completion. The corrected rules expose 120 candidates in the current snapshot (91 on 1H and 29 on 4H). Filters narrow the same results without changing recognition thresholds. Every result is labelled a candidate because some context is uncertain and later price movement is not a completed trade.
 
-The chart includes at least 160 available candles before the source, or three times the source length when greater. A known data break or the start of history may shorten this context; the page displays the actual count. A user can inspect cases and reveal later candles one at a time or together.
+The chart includes at least 160 available candles before the source, or three times the source length when greater. A known data break or the start of history may shorten this context; the page displays the actual count. It also shows the saved continuation after the marker (up to 80 hourly or 40 four-hour candles, or fewer when the dataset ends), and the page displays that count. A user can hide the continuation and replay later candles one at a time or together.
+
+All 120 plotted candidates were visually reviewed as an overview against the supplied examples. This review found ambiguous wider-range and trend-context cases among the unlabelled results. They remain labelled as candidates, with explicit context uncertainty, because the customer's ten timestamped judgments do not establish ground truth for every historical event. The three accepted customer examples retain their corrected phase boundaries.
 
 The scanner is a deterministic research tool over the available historical snapshots. Ten annotated examples are checked at the candle level; accuracy across unlabelled market history cannot be inferred from those alone.
