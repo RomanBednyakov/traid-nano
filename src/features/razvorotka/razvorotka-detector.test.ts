@@ -114,6 +114,33 @@ describe('Разворотка detector', () => {
     expect(result[0].stop).toBeLessThan(result[0].source.low)
   })
 
+  it('rejects a repeatedly tested outer edge on either side while preserving a two-touch breakout', () => {
+    const setup = (threeDays: boolean) => {
+      const original = shortSetup()
+      const lead = original.slice(0, 24)
+      const prior = Array.from({ length: 24 }, (_, i) => {
+        const close = 109 - i * 0.25
+        const thirdTouch = i === 17 && threeDays
+        const high = i === 11 || i === 23 || thirdTouch ? 113 : Math.min(close + 1, 110)
+        return bar(24 + i, close + 0.2, high, close - 1, close)
+      })
+      return [...lead, ...prior, ...original.slice(24)].map((c, i) => ({
+        ...c, time: (start + i * 14400) as UTCTimestamp,
+      }))
+    }
+    const scan = (candles: Candle[]) => detectRazvorotka({ ...dataset(candles), interval: '4h' }, [])
+    const mirror = (candles: Candle[]) => candles.map(c => ({ ...c,
+      open: 300 - c.open, close: 300 - c.close, high: 300 - c.low, low: 300 - c.high,
+    }))
+    const twoTouches = setup(false)
+    const threeTouches = setup(true)
+    const marker = twoTouches.at(-1)!.time
+    expect(scan(twoTouches).some(item => item.direction === 'short' && item.detectedTime === marker)).toBe(true)
+    expect(scan(threeTouches).some(item => item.direction === 'short' && item.detectedTime === marker)).toBe(false)
+    expect(scan(mirror(twoTouches)).some(item => item.direction === 'long' && item.detectedTime === marker)).toBe(true)
+    expect(scan(mirror(threeTouches)).some(item => item.direction === 'long' && item.detectedTime === marker)).toBe(false)
+  })
+
   it('marks a single uncovered source wick as a weakened short or long, preserving raw coverage', () => {
     const candles = singleUncoveredWickSetup()
     const short = detectRazvorotka(dataset(candles), [])
