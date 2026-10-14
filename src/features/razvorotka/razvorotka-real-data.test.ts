@@ -29,6 +29,29 @@ describe('Разворотка on saved market history', () => {
     expect(matches.some(item => item.id === 'nvda-4h-long-1785159000')).toBe(false)
   }, 30000)
 
+  it('does not count a trimmed AAPL wick as extra breakout depth', () => {
+    const hourly = history('aapl')
+    const higher = fourHourContext(prepareHistory(hourly, '4h'))
+    expect(detectRazvorotka(hourly, higher).some(item => item.id === 'aapl-1h-short-1739975400')).toBe(false)
+  })
+
+  it('does not mistake the lower edge of the broader BTC 4H range for a long breakout', () => {
+    const hourly = history('btc-usd')
+    const fourHour = prepareHistory(hourly, '4h')
+    expect(detectRazvorotka(fourHour, dailyContext(hourly)).some(item => item.id === 'btc-usd-4h-long-1786636800')).toBe(false)
+  })
+
+  it('finds reviewed long consolidations without replacing shorter confirmed cases', () => {
+    const hourly = history('ief')
+    const higher = fourHourContext(prepareHistory(hourly, '4h'))
+    const matches = detectRazvorotka(hourly, higher)
+    for (const id of ['ief-1h-long-1705501800', 'ief-1h-short-1732717800']) {
+      const match = matches.find(item => item.id === id)
+      expect(match?.sourceBars).toBeGreaterThan(96)
+      expect(match?.uncertainties).toContain('Длинная консолидация: границы и контекст требуют ручной сверки')
+    }
+  })
+
   it('does not join the two ETH breakout attempts around 30 December 2024', () => {
     const hourly = history('eth-usd')
     const higher = fourHourContext(prepareHistory(hourly, '4h'))
@@ -76,6 +99,13 @@ describe('Разворотка on saved market history', () => {
           expect(match.sourceBars).toBeGreaterThanOrEqual(12)
           expect(match.holdBars).toBeGreaterThanOrEqual(2)
           expect(match.breakoutDepthPercent).toBeGreaterThanOrEqual(15)
+          const sourceBars = dataset.candles.filter(c => c.time >= match.source.start && c.time <= match.source.end)
+          const rawHigh = Math.max(...sourceBars.map(c => c.high))
+          const rawLow = Math.min(...sourceBars.map(c => c.low))
+          const apex = match.direction === 'short' ? match.breakout.high : match.breakout.low
+          const rawDepth = (match.direction === 'short' ? apex - rawHigh : rawLow - apex) / (rawHigh - rawLow) * 100
+          expect(rawDepth).toBeGreaterThanOrEqual(15)
+          expect(match.breakoutDepthPercent).toBeCloseTo(rawDepth, 6)
           if (match.cancellationException === 'single_uncovered_source_wick') {
             expect(match.coveragePercent).toBeLessThan(90)
             const source = dataset.candles.filter(c => c.time >= match.source.start && c.time <= match.source.end)

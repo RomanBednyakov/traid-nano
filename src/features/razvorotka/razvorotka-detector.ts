@@ -19,6 +19,7 @@ export interface RazvorotkaCase {
   direction: Direction
   detectedTime: UTCTimestamp
   source: PhaseBox
+  fullSource?: PhaseBox
   breakout: PhaseBox
   cancellation: PhaseBox
   sourceBars: number
@@ -47,6 +48,7 @@ export interface HigherCandle {
 }
 
 const lengths = Array.from({ length: 85 }, (_, i) => 96 - i)
+const extendedLengths = Array.from({ length: 64 }, (_, i) => 160 - i)
 const minimumVisibleTrendBars = 160
 const previousLevelLookbackBars = 200
 const phaseThreeReturnFraction = 0.2
@@ -240,8 +242,7 @@ function insideLargerRange(candles: Candle[], segmentStart: number, sourceStart:
 }
 
 /** The apparent breakout is only another touch of a nearby, repeatedly tested outer range. */
-function insideNearbyRange(candles: Candle[], segmentStart: number, sourceStart: number, breakoutAt: number, source: { high: number; low: number; height: number }, apex: number, direction: Direction) {
-  const lookback = 24
+function insideNearbyRangeAtLookback(candles: Candle[], segmentStart: number, sourceStart: number, breakoutAt: number, source: { high: number; low: number; height: number }, apex: number, direction: Direction, lookback: number, apexTolerance: number) {
   if (sourceStart - segmentStart < lookback) return false
   const prior = candles.slice(sourceStart - lookback, sourceStart)
   const outer = bounds(candles, sourceStart - lookback, breakoutAt)
@@ -252,20 +253,25 @@ function insideNearbyRange(candles: Candle[], segmentStart: number, sourceStart:
   if (direction === 'long') {
     return Math.abs(outer.high - source.high) <= tolerance &&
       outer.low <= source.low - source.height * 0.25 &&
-      Math.abs(apex - outer.low) <= tolerance
+      Math.abs(apex - outer.low) <= source.height * apexTolerance
   }
   return Math.abs(outer.low - source.low) <= tolerance &&
     outer.high >= source.high + source.height * 0.25 &&
-    Math.abs(apex - outer.high) <= tolerance
+    Math.abs(apex - outer.high) <= source.height * apexTolerance
 }
 
-function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: number, end: number): RazvorotkaCase[] {
+function insideNearbyRange(candles: Candle[], segmentStart: number, sourceStart: number, breakoutAt: number, source: { high: number; low: number; height: number }, apex: number, direction: Direction) {
+  return insideNearbyRangeAtLookback(candles, segmentStart, sourceStart, breakoutAt, source, apex, direction, 24, 0.1) ||
+    insideNearbyRangeAtLookback(candles, segmentStart, sourceStart, breakoutAt, source, apex, direction, 32, 0.15)
+}
+
+function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: number, end: number, sourceLengths = lengths): RazvorotkaCase[] {
   const candles = dataset.candles
   const found: RazvorotkaCase[] = []
   for (let breakoutAt = start + 12; breakoutAt < end - 2; breakoutAt++) {
     let match: RazvorotkaCase | null = null
     let matchedAt = -1
-    for (const length of lengths) {
+    for (const length of sourceLengths) {
       if (breakoutAt - length < start) continue
       const source = sourceRange(candles, breakoutAt, length)
       if (!source) continue
@@ -308,7 +314,9 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           apex = direction === 'short' ? Math.max(apex, c.high) : Math.min(apex, c.low)
           lastBreakoutAt = i
         }
-        if (abandonedBreakout || hold < 2 || cancellationStart < 0 || Math.abs(apex - edge) < source.height * 0.15) continue
+        const rawHeight = source.rawHigh - source.rawLow
+        const rawDepth = (apex - confirmationEdge) * sign / rawHeight
+        if (abandonedBreakout || hold < 2 || cancellationStart < 0 || rawDepth < 0.15) continue
 
         const localTrend = classifyContext(candles.slice(Math.max(start, source.start - 16), source.start), direction, source.height)
         if (localTrend === 'opposed' || localTrend === 'range') continue
@@ -382,6 +390,16 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           if (previous.high > source.high || previous.low < source.low) break
           displaySourceStart--
         }
+        if (length > 96) {
+          // Longer ranges need a clear preceding move and must still look
+          // sideways when the extra candles shown in Phase 1 are included.
+          const visibleHeight = bounds(candles, displaySourceStart, breakoutAt).height
+          const trendSign = direction === 'long' ? 1 : -1
+          const visibleDrift = trendSign * (candles[breakoutAt - 1].close - candles[displaySourceStart].open) / visibleHeight
+          const visiblePretrend = precedingMove(candles, start, displaySourceStart, 64, direction, visibleHeight)
+          if (visibleDrift < -0.6 || visiblePretrend === null || visiblePretrend < 0.1) continue
+          uncertainties.push('Длинная консолидация: границы и контекст требуют ручной сверки')
+        }
         match = {
           id: `${dataset.slug}-${dataset.interval}-${direction}-${candles[breakoutAt].time}`,
           symbol: dataset.symbol,
@@ -389,11 +407,14 @@ function scanSegment(dataset: MarketDataset, higher: HigherCandle[], start: numb
           direction,
           detectedTime: candles[detectedAt].time,
           source: { start: candles[displaySourceStart].time, end: candles[breakoutAt - 1].time, high: source.high, low: source.low },
+          fullSource: source.rawHigh !== source.high || source.rawLow !== source.low
+            ? { start: candles[displaySourceStart].time, end: candles[breakoutAt - 1].time, high: source.rawHigh, low: source.rawLow }
+            : undefined,
           breakout: { start: candles[breakoutAt].time, end: candles[breakoutEnd].time, high: Math.max(edge, apex), low: Math.min(edge, apex) },
           cancellation: { start: candles[breakoutEnd + 1].time, end: candles[detectedAt].time, high: returnBounds.high, low: returnBounds.low },
           sourceBars: breakoutAt - displaySourceStart,
           holdBars: hold,
-          breakoutDepthPercent: Math.abs(apex - edge) / source.height * 100,
+          breakoutDepthPercent: rawDepth * 100,
           coveragePercent: coverage, cancellationException,
           stop, target, riskReward: best.rr, entryZone: best.entry,
           entryOptions: options.map(option => ({ label: option.label, price: option.entry, riskReward: option.rr })),
@@ -422,7 +443,15 @@ export function detectRazvorotka(dataset: MarketDataset, higher: HigherCandle[])
   const boundaries = [0]
   dataset.candles.forEach((c, i) => { if (i && breaks.has(c.time)) boundaries.push(i) })
   boundaries.push(dataset.candles.length)
-  return boundaries.slice(0, -1).flatMap((start, i) => scanSegment(dataset, higher, start, boundaries[i + 1])).reverse()
+  return boundaries.slice(0, -1).flatMap((start, i) => {
+    const end = boundaries[i + 1]
+    const primary = scanSegment(dataset, higher, start, end)
+    const extended = scanSegment(dataset, higher, start, end, extendedLengths).filter(candidate =>
+      !primary.some(existing => existing.id === candidate.id ||
+        existing.direction === candidate.direction &&
+        candidate.breakout.start <= existing.detectedTime && existing.breakout.start <= candidate.detectedTime))
+    return [...primary, ...extended].sort((left, right) => left.detectedTime - right.detectedTime || left.id.localeCompare(right.id))
+  }).reverse()
 }
 
 /** Build completed daily bars from the same prepared hourly history. */

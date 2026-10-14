@@ -13,6 +13,7 @@ interface ChartProps {
 interface Rect { left: number; top: number; width: number; height: number }
 interface Geometry {
   source: Rect
+  fullSource?: Rect
   breakout: Rect
   cancellation: Rect
   stopY: number
@@ -36,20 +37,21 @@ function phaseRect(chart: IChartApi, series: ISeriesApi<SeriesType>, box: PhaseB
 
 function geometry(chart: IChartApi, series: ISeriesApi<SeriesType>, pattern: RazvorotkaCase): Geometry | null {
   const source = phaseRect(chart, series, pattern.source)
+  const fullSource = pattern.fullSource ? phaseRect(chart, series, pattern.fullSource) : undefined
   const breakout = phaseRect(chart, series, pattern.breakout)
   const cancellation = phaseRect(chart, series, pattern.cancellation)
   const stopY = series.priceToCoordinate(pattern.stop)
   const targetY = series.priceToCoordinate(pattern.target)
   const markerX = chart.timeScale().timeToCoordinate(pattern.detectedTime)
   if (!source || !breakout || !cancellation || stopY === null || targetY === null || markerX === null) return null
-  return { source, breakout, cancellation, stopY, targetY, markerX, chartWidth: chart.timeScale().width() }
+  return { source, fullSource: fullSource ?? undefined, breakout, cancellation, stopY, targetY, markerX, chartWidth: chart.timeScale().width() }
 }
 
 const formatPrice = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value < 10 ? 5 : 3 })
 
-function Box({ rect, color, label }: { rect: Rect; color: string; label: string }) {
-  return <div className="pointer-events-none absolute z-10 border-2" style={{ ...rect, borderColor: color, backgroundColor: `${color}12` }}>
-    <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-[#071011e8] px-1.5 py-0.5 text-[10px] font-semibold" style={{ color }}>{label}</span>
+function Box({ rect, color, label, dashed = false }: { rect: Rect; color: string; label?: string; dashed?: boolean }) {
+  return <div className={`pointer-events-none absolute z-10 border-2 ${dashed ? 'border-dashed' : ''}`} style={{ ...rect, borderColor: color, backgroundColor: dashed ? 'transparent' : `${color}12` }}>
+    {label && <span className="absolute -top-6 left-0 whitespace-nowrap rounded bg-[#071011e8] px-1.5 py-0.5 text-[10px] font-semibold" style={{ color }}>{label}</span>}
   </div>
 }
 
@@ -112,6 +114,7 @@ export function RazvorotkaChart({ pattern, revealed, showAnnotations, focusOnSig
     <div ref={containerRef} className="absolute inset-0" />
     {showAnnotations && overlay && <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       {revealed > 0 && <div className="absolute bottom-7 top-0 border-l border-teal-300/30 bg-teal-300/[0.04]" style={{ left: overlay.markerX, width: Math.max(overlay.chartWidth - overlay.markerX, 1) }} />}
+      {overlay.fullSource && <Box rect={overlay.fullSource} color="#fbbf2488" dashed />}
       <Box rect={overlay.source} color="#fbbf24" label="1 · консолидация" />
       <Box rect={overlay.breakout} color="#60a5fa" label="2 · ложный выход" />
       <Box rect={overlay.cancellation} color="#fb7185" label="3 · отмена" />

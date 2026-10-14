@@ -197,6 +197,31 @@ describe('Разворотка detector', () => {
     expect(result[0].coveragePercent).toBe(90)
   })
 
+  it('measures breakout depth against the full wick range, even when the main range omits one wick', () => {
+    const candles = shortSetup().slice(0, 24)
+    for (let i = 24; i < 72; i++) {
+      const close = i % 2 ? 106 : 104
+      candles.push(bar(i, close, i === 66 ? 111 : i % 3 === 0 ? 110 : 108, i % 3 === 1 ? 100 : 102, close))
+    }
+    candles.push(bar(72, 111.05, 112, 110.7, 111.6))
+    candles.push(bar(73, 111.6, 112.5, 111.1, 112.1))
+    candles.push(bar(74, 112.1, 112.2, 105, 107))
+    candles.push(bar(75, 107, 108, 100.5, 101))
+    const mirror = (bars: Candle[]) => bars.map(c => ({ ...c,
+      open: 300 - c.open, close: 300 - c.close, high: 300 - c.low, low: 300 - c.high,
+    }))
+    // Main range is 100–110, but the actual source wick reaches 111.
+    // A 112.5 apex is only 13.64% beyond the full 11-point range.
+    expect(detectRazvorotka(dataset(candles), []).some(item => item.detectedTime === candles[75].time)).toBe(false)
+    expect(detectRazvorotka(dataset(mirror(candles)), []).some(item => item.detectedTime === candles[75].time)).toBe(false)
+
+    candles[73] = bar(73, 111.6, 112.65, 111.1, 112.1)
+    const accepted = detectRazvorotka(dataset(candles), []).find(item => item.detectedTime === candles[75].time)
+    expect(accepted?.breakoutDepthPercent).toBeCloseTo(15)
+    expect(accepted?.fullSource).toMatchObject({ high: 111, low: 100 })
+    expect(detectRazvorotka(dataset(mirror(candles)), []).some(item => item.detectedTime === candles[75].time)).toBe(true)
+  })
+
   it('rejects short source, shallow breakout, weak hold and incomplete cancellation', () => {
     const shortSource = shortSetup().filter((_, i) => i !== 25).map((c, i) => ({ ...c, time: (start + i * 3600) as UTCTimestamp }))
     expect(detectRazvorotka(dataset(shortSource), [])).toHaveLength(0)
