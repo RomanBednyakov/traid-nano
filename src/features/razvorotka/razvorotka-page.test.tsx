@@ -50,7 +50,7 @@ beforeEach(() => {
 describe('Разворотка page', () => {
   it('shows the available continuation for a short history and allows candle replay', async () => {
     renderPage()
-    expect(await screen.findByText('AAPL · «Разворотка» short')).toBeInTheDocument()
+    expect(await screen.findByText('AAPL · «Разворотка» шорт')).toBeInTheDocument()
     expect(screen.getByTestId('razvorotka-chart')).toHaveTextContent('first · 2 · on')
     expect(screen.getByText(/справа: 2 из 2 свечи после сигнала/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Вся дальнейшая история' })).toBeDisabled()

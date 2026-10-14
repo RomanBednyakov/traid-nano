@@ -16,6 +16,7 @@ const categoryLabels: Record<MarketCategory, string> = { stocks: 'Акции', g
 const formatTime = (time: number) => new Date(time * 1000).toLocaleString('ru-RU', { timeZone: 'UTC' })
 const formatPrice = (value: number) => value.toLocaleString('ru-RU', { maximumFractionDigits: value < 10 ? 5 : 3 })
 const formatPeriod = (value?: string) => value ? new Date(value).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—'
+const directionLabel = (direction: RazvorotkaCase['direction']) => direction === 'short' ? 'шорт' : 'лонг'
 const plural = (count: number, one: string, few: string, many: string) => count % 100 >= 11 && count % 100 <= 14 ? many : count % 10 === 1 ? one : count % 10 >= 2 && count % 10 <= 4 ? few : many
 
 export function RazvorotkaPage() {
@@ -167,11 +168,11 @@ export function RazvorotkaPage() {
       </div></div> : <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
         <section className="min-w-0 overflow-hidden rounded-2xl border border-[#203032] bg-[#0b1517]">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#203032] p-5">
-            <div><div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">Случай {index + 1} из {patterns.length} · {pattern.timeframe.toUpperCase()}</div><h1 className="text-xl font-semibold text-white">{pattern.symbol} · «Разворотка» {pattern.direction === 'short' ? 'short' : 'long'}</h1><p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {formatTime(pattern.detectedTime)} UTC</p><p className="mt-1 text-xs text-[#829695]">Контекст слева: {visibleTrendBars} {plural(visibleTrendBars, 'свеча', 'свечи', 'свечей')} до консолидации · справа: {revealed} из {totalFutureBars} {plural(totalFutureBars, 'свеча', 'свечи', 'свечей')} после сигнала</p></div>
+            <div><div className="mb-1 text-xs font-medium uppercase tracking-wider text-teal-300">Случай {index + 1} из {patterns.length} · {pattern.timeframe.toUpperCase()}</div><h1 className="text-xl font-semibold text-white">{pattern.symbol} · «Разворотка» {directionLabel(pattern.direction)}</h1><p className="mt-1 text-sm text-[#829695]">Свеча распознавания: {formatTime(pattern.detectedTime)} UTC</p><p className="mt-1 text-xs text-[#829695]">Контекст слева: {visibleTrendBars} {plural(visibleTrendBars, 'свеча', 'свечи', 'свечей')} до консолидации · справа: {revealed} из {totalFutureBars} {plural(totalFutureBars, 'свеча', 'свечи', 'свечей')} после сигнала</p></div>
             <div className="flex flex-wrap items-center gap-2">
               <Select value={String(index)} onValueChange={value => { setIndex(Number(value)); setReplay(null); setFocusOnSignal(false) }}>
                 <SelectTrigger aria-label="Найденный случай" className="h-9 min-w-52 border-[#2b4042] bg-[#091315] text-xs text-white"><SelectValue /></SelectTrigger>
-                <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.timeframe.toUpperCase()} {item.direction} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
+                <SelectContent>{patterns.map((item, caseIndex) => <SelectItem key={item.id} value={String(caseIndex)}>{caseIndex + 1}. {item.symbol} {item.timeframe.toUpperCase()} {directionLabel(item.direction)} · {formatTime(item.detectedTime)} UTC</SelectItem>)}</SelectContent>
               </Select>
               <Button variant="outline" size="sm" onClick={() => setShowAnnotations(value => !value)} className="border-[#2b4042] bg-transparent">{showAnnotations ? <EyeOff className="size-4" /> : <Eye className="size-4" />}{showAnnotations ? 'Скрыть разметку' : 'Показать разметку'}</Button>
               <Button variant="outline" size="sm" onClick={() => setFocusOnSignal(value => !value)} className="border-[#2b4042] bg-transparent">{focusOnSignal ? 'Показать весь график' : 'Приблизить сигнал'}</Button>
