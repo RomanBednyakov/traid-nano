@@ -81,8 +81,9 @@ export function RazvorotkaChart({ pattern, revealed, showAnnotations, focusOnSig
     series.setData([...pattern.candles, ...pattern.futureCandles.slice(0, revealed)])
     chart.timeScale().fitContent()
     if (focusOnSignal) {
+      const sourceStart = pattern.candles.findIndex(candle => candle.time === pattern.source.start)
       chart.timeScale().setVisibleLogicalRange({
-        from: Math.max(0, pattern.candles.length - 49),
+        from: Math.max(0, sourceStart - 24),
         to: pattern.candles.length + Math.min(revealed, pattern.timeframe === '1h' ? 80 : 40) + 5,
       })
     }
